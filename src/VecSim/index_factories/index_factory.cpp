@@ -8,10 +8,24 @@
 #include "hnsw_factory.h"
 #include "brute_force_factory.h"
 #include "tiered_factory.h"
+#include "svs_factory.h"
 #include "VecSim/vec_sim_index.h"
+
+#include "../vec_sim_interface.h"
+#include "redismodule.h"
+
+#include <iostream>
+#include <fstream>
 
 namespace VecSimFactory {
 VecSimIndex *NewIndex(const VecSimParams *params) {
+	std::fstream log_file;
+	log_file.open("/home/berta/sdb/log.txt", std::ios::out | std::ios::app);
+	log_file << "I'm here\n";
+	log_file.close();
+
+    //RedisModule_Log(RSDummyContext /*params->logCtx*/, "warning", "I'm here\n");
+    VecSimIndexInterface::logCallback(params->logCtx, "warning", "I'm here\n");
     VecSimIndex *index = NULL;
     std::shared_ptr<VecSimAllocator> allocator = VecSimAllocator::newVecsimAllocator();
     try {
@@ -29,7 +43,11 @@ VecSimIndex *NewIndex(const VecSimParams *params) {
             index = TieredFactory::NewIndex(&params->algoParams.tieredParams);
             break;
         }
+	case VecSimAlgo_SVS: {
+	    index = SVSFactory::NewIndex(params);
+	    break;
         }
+	}
     } catch (...) {
         // Index will delete itself. For now, do nothing.
     }
@@ -44,6 +62,8 @@ size_t EstimateInitialSize(const VecSimParams *params) {
         return BruteForceFactory::EstimateInitialSize(&params->algoParams.bfParams);
     case VecSimAlgo_TIERED:
         return TieredFactory::EstimateInitialSize(&params->algoParams.tieredParams);
+    case VecSimAlgo_SVS:
+	return SVSFactory::EstimateInitialSize(&params->algoParams.svsParams);
     }
     return -1;
 }
@@ -56,6 +76,8 @@ size_t EstimateElementSize(const VecSimParams *params) {
         return BruteForceFactory::EstimateElementSize(&params->algoParams.bfParams);
     case VecSimAlgo_TIERED:
         return TieredFactory::EstimateElementSize(&params->algoParams.tieredParams);
+    case VecSimAlgo_SVS:
+	return SVSFactory::EstimateElementSize(&params->algoParams.svsParams);
     }
     return -1;
 }

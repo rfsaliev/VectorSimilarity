@@ -43,7 +43,12 @@ typedef enum {
 } VecSimType;
 
 // Algorithm type/library.
-typedef enum { VecSimAlgo_BF, VecSimAlgo_HNSWLIB, VecSimAlgo_TIERED } VecSimAlgo;
+typedef enum {
+	VecSimAlgo_BF,
+	VecSimAlgo_HNSWLIB,
+	VecSimAlgo_TIERED,
+	VecSimAlgo_SVS
+} VecSimAlgo;
 
 // Distance metric
 typedef enum { VecSimMetric_L2, VecSimMetric_IP, VecSimMetric_Cosine } VecSimMetric;
@@ -124,6 +129,15 @@ typedef struct {
     size_t blockSize;
 } BFParams;
 
+typedef struct {
+    VecSimType type;
+    size_t dim;
+    VecSimMetric metric;
+    bool multi;
+    size_t initialCapacity;
+    size_t blockSize;
+} SVSParams; // TODO: to be replaced after learning about SVS
+
 // A struct that contains HNSW tiered index specific params.
 typedef struct {
     size_t swapJobThreshold; // The minimum number of swap jobs to accumulate before applying
@@ -147,6 +161,7 @@ typedef union {
     HNSWParams hnswParams;
     BFParams bfParams;
     TieredIndexParams tieredParams;
+    SVSParams svsParams;
 } AlgoParams;
 
 struct VecSimParams {
