@@ -12,7 +12,7 @@
 #include "VecSim/vec_sim_index.h"
 
 #include "../vec_sim_interface.h"
-#include "redismodule.h"
+//#include "redismodule.h"
 
 #include <iostream>
 #include <fstream>
