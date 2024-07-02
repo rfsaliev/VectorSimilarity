@@ -7,6 +7,7 @@
 #pragma once
 
 #include "svs.h"
+#include "svs/index/vamana/dynamic_index.h"
 
 template <typename DataType, typename DistType>
 class SVSIndex_Single : public SVSIndex<DataType, DistType> {
@@ -24,6 +25,8 @@ template <typename DataType, typename DistType>
 SVSIndex_Single<DataType, DistType>::SVSIndex_Single(const SVSParams *params, const AbstractIndexInitParams &abstractInitParams) :
 	SVSIndex<DataType, DistType>(params, abstractInitParams)
 {
+//	auto index = svs::index::MutableVamaIndex();
+//	return index;
 }
 
 template <typename DataType, typename DistType>
