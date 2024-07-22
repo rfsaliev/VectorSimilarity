@@ -130,13 +130,25 @@ typedef struct {
 } BFParams;
 
 typedef struct {
-    VecSimType type;
-    size_t dim;
-    VecSimMetric metric;
-    bool multi;
+    /* We need this because all indexes inher from an abstract index class
+     * that looks after these.
+     * This is also why HNSW had to define them too
+     */
+    VecSimType type;     // Datatype to index.
+    size_t dim;          // Vector's dimension.
+    VecSimMetric metric; // Distance metric to use in the index.
+    bool multi;          // Determines if the index should multi-index or not.
     size_t initialCapacity;
     size_t blockSize;
-} SVSParams; // TODO: to be replaced after learning about SVS
+
+    /* SVS-Vamana specifics */
+    float alpha;
+    size_t graph_max_degree;
+    size_t window_size;
+    size_t max_candidate_pool_size;
+    size_t prune_to;
+    bool use_full_search_history;
+} SVSParams;
 
 // A struct that contains HNSW tiered index specific params.
 typedef struct {
