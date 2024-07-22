@@ -22,15 +22,25 @@ static AbstractIndexInitParams NewAbstractInitParams(const VecSimParams *params)
 
 
 // TODO: can be deduplicated from brute_force_factory.cpp
-VecSimIndex *NewIndex(const SVSParams *svsparams, const AbstractIndexInitParams &abstractInitParams) {
+
+template <typename DataType, typename DistType>
+VecSimIndex *NewIndex(const SVSParams *params, const AbstractIndexInitParams &abstractInitParams) {
 	// assume FLOAT32 for now, single
-	return new (abstractInitParams.allocator) SVSIndex_Single<float, float>(svsparams, abstractInitParams);
+	return new (abstractInitParams.allocator) SVSIndex_Single<DataType, DistType>(params, abstractInitParams);
 }
 
 VecSimIndex *NewIndex(const VecSimParams *params) {
+	/* In fact, there is no need of NewAbstractInitParams for the Vamana/SVS algorithm.
+	 * However, the established pattern in VecSim is to inherit all index classes
+	 * from an abstract VecSimIndexAbstract class.
+	 * The abstract parent, in turn, needs the abstract parameters.
+	 * TODO: see if you can get rid of the abstrat params.
+	 */ 
 	const SVSParams *svsParams = &params->algoParams.svsParams;
 	AbstractIndexInitParams abstractInitParams = NewAbstractInitParams(params);
-	return NewIndex(svsParams, NewAbstractInitParams(params));
+	//using T = uint32_t;
+	using T = svs::data::BlockedData<float, 10>;
+	return NewIndex<T, svs::distance::DistanceL2>(svsParams, NewAbstractInitParams(params));
 }
 	
 //VecSimIndex *NewIndex(const SVSParams *svsparams) {
@@ -47,7 +57,9 @@ size_t EstimateInitialSize(const SVSParams *params) {
 	size_t est = sizeof(VecSimAllocator) + allocations_overhead;
 
 	// Assume FLOAT32, Single
-	est += sizeof(SVSIndex<float, float>);
+	//using T = uint32_t;
+	using T = svs::data::BlockedData<float, 10>;
+	est += sizeof(SVSIndex<T, svs::distance::DistanceL2>);
 
 	return est;
 }

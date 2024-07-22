@@ -18,15 +18,14 @@ public:
     int addVector(const void *vector_data, labelType label, void *auxiliaryCtx = nullptr) override;
     int deleteVector(labelType label) override;
     double getDistanceFrom_Unsafe(labelType label, const void *vector_data) const override;
-    inline size_t indexLabelCount() const override { return this->count; }
+    inline size_t indexLabelCount() const override { return this->count; };
+    void fitMemory() {};
 };
 
 template <typename DataType, typename DistType>
 SVSIndex_Single<DataType, DistType>::SVSIndex_Single(const SVSParams *params, const AbstractIndexInitParams &abstractInitParams) :
 	SVSIndex<DataType, DistType>(params, abstractInitParams)
 {
-//	auto index = svs::index::MutableVamaIndex();
-//	return index;
 }
 
 template <typename DataType, typename DistType>
@@ -39,7 +38,11 @@ SVSIndex_Single<DataType, DistType>::getDistanceFrom_Unsafe(labelType label,
 template <typename DataType, typename DistType>
 int SVSIndex_Single<DataType, DistType>::addVector(const void *vector_data, labelType label,
                                                           void *auxiliaryCtx) {
-    return 1;
+//      auto points = (svs::data::SimpleData<DataType, svs::Dynamic> *)vector_data;
+  //    auto ids_to_delete = label;
+
+ //     this->vamana_idx.add_points(points, ids_to_delete);
+      return 1;
 }
 
 template <typename DataType, typename DistType>

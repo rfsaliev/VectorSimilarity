@@ -25,12 +25,43 @@
 #include <cassert>
 #include <limits>
 
+#include "svs/index/vamana/dynamic_index.h"
+#include <vector>
+
 template <typename DataType, typename DistType>
 class SVSIndex : public VecSimIndexAbstract<DataType, DistType> {
 protected:
+    /* Notice: SimpleGraph template can only be instatiatied for std::unsigned_integral type */
+    svs::index::vamana::MutableVamanaIndex<svs::graphs::SimpleBlockedGraph<uint32_t>, DataType, DistType> vamana_idx;
+    std::vector<DataType> data;
+    std::vector<DataType> labels;
     idType count;
 
 public:
+//    static auto& getVamanaIdx() {
+//	auto vamana_params = svs::index::vamana::VamanaBuildParameters{
+//		1,
+//		1,
+//		1,
+//		1,
+//		1,
+//		true
+//	};
+//
+//	auto data_mutable = svs::data::BlockedData<uint32_t, 10>(0, 0);
+//	std::vector<int> initial_indices{};
+//	
+//	static auto vamana_idx = svs::index::vamana::MutableVamanaIndex(
+//			vamana_params,
+//			std::move(data_mutable),
+//			initial_indices,
+//			svs::distance::DistanceL2(),
+//			4
+//			);
+//
+//	return vamana_idx;
+//    };
+
     SVSIndex(const SVSParams *params, const AbstractIndexInitParams &abstractInitParams);
     ~SVSIndex() = default;
 
@@ -56,6 +87,26 @@ SVSIndex<DataType, DistType>::SVSIndex(
 		const AbstractIndexInitParams &abstractInitParams)
 	: VecSimIndexAbstract<DataType, DistType>(abstractInitParams)
 {
+	/* TODO: remove the indirection layer for the struct */
+	auto vamana_params = svs::index::vamana::VamanaBuildParameters{
+		params->alpha,
+		params->graph_max_degree,
+		params->window_size,
+		params->max_candidate_pool_size,
+		params->prune_to,
+		params->use_full_search_history
+	};
+
+	auto data_mutable = svs::data::BlockedData<float, 10>(2, 10);
+	std::vector<float> initial_indices{};
+
+	vamana_idx = svs::index::vamana::MutableVamanaIndex(
+			vamana_params,
+			std::move(data_mutable),
+			initial_indices,
+			svs::distance::DistanceL2(),
+			4
+			);
 }
 
 template <typename DataType, typename DistType>
@@ -110,8 +161,15 @@ template <typename DataType, typename DistType>
 VecSimQueryReply *
 SVSIndex<DataType, DistType>::topKQuery(const void *queryBlob, size_t k,
                                                VecSimQueryParams *queryParams) const {
-    auto rep = new VecSimQueryReply(this->allocator);
-    return rep;
+    
+   // auto queries = SimpleData(queryBlob);
+   // // TODO: convert queryBlob to queries
+   // // TODO: convert queryParams to results
+
+   // index.search(queries.view(), k, results.view());
+   //     
+   auto rep = new VecSimQueryReply(this->allocator);
+   return rep;
 }
 
 template <typename DataType, typename DistType>
