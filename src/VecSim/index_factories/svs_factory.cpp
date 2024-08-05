@@ -2,9 +2,8 @@
 
 #include "VecSim/index_factories/svs_factory.h"
 #include "VecSim/algorithms/svs/svs.h"
-#include "VecSim/algorithms/svs/svs_single.h"
 
-namespace SVSFactory{
+namespace SVSFactory {
 
 // Can and should be deduplicated from the other factories
 static AbstractIndexInitParams NewAbstractInitParams(const VecSimParams *params) {
@@ -20,48 +19,50 @@ static AbstractIndexInitParams NewAbstractInitParams(const VecSimParams *params)
     return abstractInitParams;
 }
 
-
 // TODO: can be deduplicated from brute_force_factory.cpp
 
-template <typename DataType, typename DistType>
 VecSimIndex *NewIndex(const SVSParams *params, const AbstractIndexInitParams &abstractInitParams) {
-	// assume FLOAT32 for now, single
-	return new (abstractInitParams.allocator) SVSIndex_Single<DataType, DistType>(params, abstractInitParams);
+    switch (abstractInitParams.vecType) {
+    case VecSimType_FLOAT32:
+        return new (abstractInitParams.allocator)
+            SVSIndex<float, float>(params, abstractInitParams);
+    default:
+        // If we got here something is wrong.
+        return NULL;
+    };
 }
 
 VecSimIndex *NewIndex(const VecSimParams *params) {
-	/* In fact, there is no need of NewAbstractInitParams for the Vamana/SVS algorithm.
-	 * However, the established pattern in VecSim is to inherit all index classes
-	 * from an abstract VecSimIndexAbstract class.
-	 * The abstract parent, in turn, needs the abstract parameters.
-	 * TODO: see if you can get rid of the abstrat params.
-	 */ 
-	const SVSParams *svsParams = &params->algoParams.svsParams;
-	AbstractIndexInitParams abstractInitParams = NewAbstractInitParams(params);
-	//using T = uint32_t;
-	using T = svs::data::BlockedData<float, 10>;
-	return NewIndex<T, svs::distance::DistanceL2>(svsParams, NewAbstractInitParams(params));
+    /* In fact, there is no need of NewAbstractInitParams for the Vamana/SVS algorithm.
+     * However, the established pattern in VecSim is to inherit all index classes
+     * from an abstract VecSimIndexAbstract class.
+     * The abstract parent, in turn, needs the abstract parameters.
+     * TODO: see if you can get rid of the abstrat params.
+     */
+    const SVSParams *svsParams = &params->algoParams.svsParams;
+    AbstractIndexInitParams abstractInitParams = NewAbstractInitParams(params);
+    return NewIndex(svsParams, NewAbstractInitParams(params));
 }
-	
-//VecSimIndex *NewIndex(const SVSParams *svsparams) {
+
+// VecSimIndex *NewIndex(const SVSParams *svsparams) {
 //	VecSimParams params = {.algoParams{.svsParams = SVSParams{*svsparams}}};
 //	return NewIndex(&params);
-//}
+// }
 
 size_t EstimateElementSize(const SVSParams *params) {
-	return params->dim * VecSimType_sizeof(params->type) + sizeof(labelType) + sizeof(void *);
+    return params->dim * VecSimType_sizeof(params->type) + sizeof(labelType) + sizeof(void *);
 };
 
 size_t EstimateInitialSize(const SVSParams *params) {
-	size_t allocations_overhead = VecSimAllocator::getAllocationOverheadSize();
-	size_t est = sizeof(VecSimAllocator) + allocations_overhead;
+    size_t allocations_overhead = VecSimAllocator::getAllocationOverheadSize();
+    size_t est = sizeof(VecSimAllocator) + allocations_overhead;
 
-	// Assume FLOAT32, Single
-	//using T = uint32_t;
-	using T = svs::data::BlockedData<float, 10>;
-	est += sizeof(SVSIndex<T, svs::distance::DistanceL2>);
+    // Assume FLOAT32, Single
+    // using T = uint32_t;
+    using T = svs::data::BlockedData<float, 10>;
+    est += sizeof(SVSIndex<T, svs::distance::DistanceL2>);
 
-	return est;
+    return est;
 }
 
 } // namespace SVSFactory
