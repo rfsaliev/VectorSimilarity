@@ -160,6 +160,82 @@ TYPED_TEST(SVSTest, svs_vector_search_by_id_test) {
     VecSimIndex_Free(index);
 }
 
+TYPED_TEST(SVSTest, svs_get_distance) {
+    size_t n = 4;
+    size_t dim = 2;
+    size_t numIndex = 3;
+    VecSimIndex *index[numIndex];
+    std::vector<double> distances;
+
+    TEST_DATA_T v1[] = {M_PI, M_PI};
+    TEST_DATA_T v2[] = {M_E, M_E};
+    TEST_DATA_T v3[] = {M_PI, M_E};
+    TEST_DATA_T v4[] = {M_SQRT2, -M_SQRT2};
+
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_L2,
+        .initialCapacity = 200,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
+
+    for (size_t i = 0; i < numIndex; i++) {
+        params.metric = (VecSimMetric)i;
+        index[i] = this->CreateNewIndex(params);
+        VecSimIndex_AddVector(index[i], v1, 1);
+        VecSimIndex_AddVector(index[i], v2, 2);
+        VecSimIndex_AddVector(index[i], v3, 3);
+        VecSimIndex_AddVector(index[i], v4, 4);
+        ASSERT_EQ(VecSimIndex_IndexSize(index[i]), 4);
+    }
+
+    TEST_DATA_T *query = v1;
+    TEST_DATA_T *norm = v2;                   // {e, e}
+    VecSim_Normalize(norm, dim, params.type); // now {1/sqrt(2), 1/sqrt(2)}
+
+    ASSERT_TYPE_EQ(norm[0], TEST_DATA_T(1.0 / sqrt(2.0)));
+    ASSERT_TYPE_EQ(norm[1], TEST_DATA_T(1.0 / sqrt(2.0)));
+    double dist;
+
+    // VecSimMetric_L2
+    distances = {0, 0.3583844006061554, 0.1791922003030777, 23.739208221435547};
+    for (size_t i = 0; i < n; i++) {
+        dist = VecSimIndex_GetDistanceFrom_Unsafe(index[VecSimMetric_L2], i + 1, query);
+        EXPECT_NEAR(dist, distances[i], 1e-5);
+    }
+
+    // VecSimMetric_IP
+    distances = {-18.73921012878418, -16.0794677734375, -17.409339904785156, 1};
+    for (size_t i = 0; i < n; i++) {
+        dist = VecSimIndex_GetDistanceFrom_Unsafe(index[VecSimMetric_IP], i + 1, query);
+        EXPECT_NEAR(dist, distances[i], 1e-5);
+    }
+
+    // VecSimMetric_Cosine
+    distances = {5.9604644775390625e-08, 5.9604644775390625e-08, 0.0025991201400756836, 1};
+    for (size_t i = 0; i < n; i++) {
+        dist = VecSimIndex_GetDistanceFrom_Unsafe(index[VecSimMetric_Cosine], i + 1, norm);
+        EXPECT_NEAR(dist, distances[i], 1e-5);
+    }
+
+    // Bad values
+    dist = VecSimIndex_GetDistanceFrom_Unsafe(index[VecSimMetric_Cosine], 0, norm);
+    EXPECT_TRUE(std::isnan(dist));
+    dist = VecSimIndex_GetDistanceFrom_Unsafe(index[VecSimMetric_L2], 46, query);
+    EXPECT_TRUE(std::isnan(dist));
+
+    // Clean-up.
+    for (size_t i = 0; i < numIndex; i++) {
+        VecSimIndex_Free(index[i]);
+    }
+}
+
 #if 0 // Disabled tests
 
 /**** resizing cases ****/
@@ -1191,71 +1267,6 @@ TYPED_TEST(SVSTest, svs_resolve_params) {
             VecSimParamResolverErr_UnknownParam);
     }
     VecSimIndex_Free(index);
-}
-
-TYPED_TEST(SVSTest, svs_get_distance) {
-    size_t n = 4;
-    size_t dim = 2;
-    size_t numIndex = 3;
-    VecSimIndex *index[numIndex];
-    std::vector<double> distances;
-
-    TEST_DATA_T v1[] = {M_PI, M_PI};
-    TEST_DATA_T v2[] = {M_E, M_E};
-    TEST_DATA_T v3[] = {M_PI, M_E};
-    TEST_DATA_T v4[] = {M_SQRT2, -M_SQRT2};
-
-    BFParams params = {.dim = dim, .initialCapacity = n};
-
-    for (size_t i = 0; i < numIndex; i++) {
-        params.metric = (VecSimMetric)i;
-        index[i] = this->CreateNewIndex(params);
-        VecSimIndex_AddVector(index[i], v1, 1);
-        VecSimIndex_AddVector(index[i], v2, 2);
-        VecSimIndex_AddVector(index[i], v3, 3);
-        VecSimIndex_AddVector(index[i], v4, 4);
-        ASSERT_EQ(VecSimIndex_IndexSize(index[i]), 4);
-    }
-
-    TEST_DATA_T *query = v1;
-    TEST_DATA_T *norm = v2;                   // {e, e}
-    VecSim_Normalize(norm, dim, params.type); // now {1/sqrt(2), 1/sqrt(2)}
-
-    ASSERT_TYPE_EQ(norm[0], TEST_DATA_T(1.0 / sqrt(2.0)));
-    ASSERT_TYPE_EQ(norm[1], TEST_DATA_T(1.0 / sqrt(2.0)));
-    double dist;
-
-    // VecSimMetric_L2
-    distances = {0, 0.3583844006061554, 0.1791922003030777, 23.739208221435547};
-    for (size_t i = 0; i < n; i++) {
-        dist = VecSimIndex_GetDistanceFrom_Unsafe(index[VecSimMetric_L2], i + 1, query);
-        ASSERT_NEAR(dist, distances[i], 1e-5);
-    }
-
-    // VecSimMetric_IP
-    distances = {-18.73921012878418, -16.0794677734375, -17.409339904785156, 1};
-    for (size_t i = 0; i < n; i++) {
-        dist = VecSimIndex_GetDistanceFrom_Unsafe(index[VecSimMetric_IP], i + 1, query);
-        ASSERT_NEAR(dist, distances[i], 1e-5);
-    }
-
-    // VecSimMetric_Cosine
-    distances = {5.9604644775390625e-08, 5.9604644775390625e-08, 0.0025991201400756836, 1};
-    for (size_t i = 0; i < n; i++) {
-        dist = VecSimIndex_GetDistanceFrom_Unsafe(index[VecSimMetric_Cosine], i + 1, norm);
-        ASSERT_NEAR(dist, distances[i], 1e-5);
-    }
-
-    // Bad values
-    dist = VecSimIndex_GetDistanceFrom_Unsafe(index[VecSimMetric_Cosine], 0, norm);
-    ASSERT_TRUE(std::isnan(dist));
-    dist = VecSimIndex_GetDistanceFrom_Unsafe(index[VecSimMetric_L2], 46, query);
-    ASSERT_TRUE(std::isnan(dist));
-
-    // Clean-up.
-    for (size_t i = 0; i < numIndex; i++) {
-        VecSimIndex_Free(index[i]);
-    }
 }
 
 TYPED_TEST(SVSTest, preferAdHocOptimization) {

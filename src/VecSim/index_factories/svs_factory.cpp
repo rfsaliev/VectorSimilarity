@@ -19,29 +19,45 @@ static AbstractIndexInitParams NewAbstractInitParams(const VecSimParams *params)
     return abstractInitParams;
 }
 
-// TODO: can be deduplicated from brute_force_factory.cpp
-
-VecSimIndex *NewIndex(const SVSParams *params, const AbstractIndexInitParams &abstractInitParams) {
-    switch (abstractInitParams.vecType) {
-    case VecSimType_FLOAT32:
-        return new (abstractInitParams.allocator)
-            SVSIndex<float, float>(params, abstractInitParams);
-    default:
-        // If we got here something is wrong.
-        return NULL;
-    };
-}
-
-VecSimIndex *NewIndex(const VecSimParams *params) {
+template <typename DataType>
+VecSimIndex *NewIndex(const SVSParams *svsParams,
+                      const AbstractIndexInitParams &abstractInitParams) {
     /* In fact, there is no need of NewAbstractInitParams for the Vamana/SVS algorithm.
      * However, the established pattern in VecSim is to inherit all index classes
      * from an abstract VecSimIndexAbstract class.
      * The abstract parent, in turn, needs the abstract parameters.
      * TODO: see if you can get rid of the abstrat params.
      */
+    switch (svsParams->metric) {
+    case VecSimMetric_L2:
+        return new (abstractInitParams.allocator)
+            SVSIndex<DataType, svs::distance::DistanceL2>(svsParams, abstractInitParams);
+    case VecSimMetric_IP:
+        return new (abstractInitParams.allocator)
+            SVSIndex<DataType, svs::distance::DistanceIP>(svsParams, abstractInitParams);
+    case VecSimMetric_Cosine:
+        return new (abstractInitParams.allocator)
+            SVSIndex<DataType, svs::distance::DistanceCosineSimilarity>(svsParams,
+                                                                        abstractInitParams);
+    default:
+        // If we got here something is wrong.
+        assert(false && "Unknown distance metric type");
+        return NULL;
+    }
+}
+
+VecSimIndex *NewIndex(const VecSimParams *params) {
     const SVSParams *svsParams = &params->algoParams.svsParams;
-    AbstractIndexInitParams abstractInitParams = NewAbstractInitParams(params);
-    return NewIndex(svsParams, NewAbstractInitParams(params));
+    auto abstractInitParams = NewAbstractInitParams(params);
+
+    switch (svsParams->type) {
+    case VecSimType_FLOAT32:
+        return NewIndex<float>(svsParams, abstractInitParams);
+    default:
+        // If we got here something is wrong.
+        assert(false && "Unsupported data type");
+        return NULL;
+    };
 }
 
 // VecSimIndex *NewIndex(const SVSParams *svsparams) {

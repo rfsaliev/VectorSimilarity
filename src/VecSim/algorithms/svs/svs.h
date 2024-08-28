@@ -28,25 +28,21 @@
 
 #include "svs/orchestrators/dynamic_vamana.h"
 
-namespace details {
-template <svs::lib::TypeList QueryTypes, typename... Args>
-std::unique_ptr<svs::DynamicVamana> make_dynamic_vamana_ptr(Args &&...args) {
-    using Impl = decltype(svs::index::vamana::MutableVamanaIndex{std::forward<Args>(args)...});
-    return std::make_unique<svs::DynamicVamana>(
-        std::make_unique<svs::DynamicVamanaImpl<QueryTypes, Impl>>(std::forward<Args>(args)...));
-}
-
-} // namespace details
-
 // TODO(rfsaliev)
 //  * remove VecSimIndexAbstract from inheritance chain
 //  * wrap vamana_idx into a handler with init()/get() to avoid improper use risk
 template <typename DataType, typename DistType>
-class SVSIndex : public VecSimIndexAbstract<DataType, DistType> {
+class SVSIndex : public VecSimIndexAbstract<DataType, DataType> {
 protected:
+    using index_storage_type = svs::data::BlockedData<DataType>;
+    using dist_type = DistType;
+    using graph_type = svs::graphs::SimpleBlockedGraph<uint32_t>;
+    using impl_type =
+        svs::index::vamana::MutableVamanaIndex<graph_type, index_storage_type, dist_type>;
+
     /* Notice: SimpleGraph template can only be instatiatied for std::unsigned_integral type */
     SVSParams params_;
-    std::unique_ptr<svs::DynamicVamana> vamana_idx;
+    std::unique_ptr<impl_type> vamana_idx;
     // TODO(rfsaliev) move to params
     static size_t num_threads() { return 4; }
 
@@ -59,14 +55,14 @@ protected:
 
     int addVectorImpl(const DataType *vector_data, labelType label);
 
-    svs::DynamicVamana *get_vamana() const {
+    impl_type *get_vamana() const {
         assert(vamana_idx);
         return this->vamana_idx.get();
     }
 
 public:
     SVSIndex(const SVSParams *params, const AbstractIndexInitParams &abstractInitParams)
-        : VecSimIndexAbstract<DataType, DistType>(abstractInitParams), params_{*params},
+        : VecSimIndexAbstract<DataType, DataType>(abstractInitParams), params_{*params},
           vamana_idx{nullptr} {}
 
     ~SVSIndex() = default;
@@ -108,12 +104,21 @@ public:
         if (!get_vamana()->has_id(label)) {
             return 0;
         }
-        get_vamana()->delete_points({&label, 1});
+        get_vamana()->delete_entries(std::span<labelType, 1>{&label, 1});
         return 1;
     }
 
     double getDistanceFrom_Unsafe(labelType label, const void *vector_data) const override {
-        return -1;
+        if (!get_vamana()->has_id(label)) {
+            return INFINITY;
+        };
+
+        auto index_impl = get_vamana(); //->get_impl()->get_impl();
+        auto my_datum = index_impl->get_datum(label);
+        dist_type dist_f = index_impl->distance_function();
+        return svs::distance::compute(
+            dist_f, std::span{reinterpret_cast<const DataType *>(vector_data), params_.dim},
+            my_datum);
     }
 
     VecSimQueryReply *topKQuery(const void *queryBlob, size_t k,
@@ -144,17 +149,15 @@ int SVSIndex<DataType, DistType>::addVectorImpl(const DataType *vector_data, lab
         auto dst = init_data.get_datum(0);
         std::copy(vector_data, vector_data + params_.dim, dst.begin());
 
-        vamana_idx =
-            std::move(details::make_dynamic_vamana_ptr<svs::manager::as_typelist<DataType>>(
-                MakeVamanaBuildParameters(params_), init_data, ids, svs::distance::DistanceL2(),
-                num_threads()));
+        vamana_idx = std::make_unique<impl_type>(MakeVamanaBuildParameters(params_), init_data, ids,
+                                                 DistType{}, num_threads());
         return 1;
     }
 
     int ret = 1;
 
     if (get_vamana()->has_id(label)) {
-        get_vamana()->delete_points(ids);
+        get_vamana()->delete_entries(ids);
         ret = 0;
     }
 
@@ -168,7 +171,9 @@ VecSimQueryReply *SVSIndex<DataType, DistType>::topKQuery(const void *queryBlob,
                                                           VecSimQueryParams *queryParams) const {
     auto queries = svs::data::ConstSimpleDataView<DataType>{
         reinterpret_cast<const DataType *>(queryBlob), 1, params_.dim};
-    svs::QueryResult<size_t> result = get_vamana()->search(queries, k);
+    auto result = svs::QueryResult<size_t>{queries.size(), k};
+    auto sp = get_vamana()->get_search_parameters();
+    get_vamana()->search(result.view(), queries, sp);
 
     assert(result.n_queries() == 1);
 
