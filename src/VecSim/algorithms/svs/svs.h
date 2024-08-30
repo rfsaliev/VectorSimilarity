@@ -28,6 +28,29 @@
 
 #include "svs/orchestrators/dynamic_vamana.h"
 
+namespace details {
+// Adjust SVS distance computation to VecSim
+template <typename Ea, typename Eb, size_t Da, size_t Db>
+float computeVecSimDistance(svs::distance::DistanceL2 dist, std::span<Ea, Da> a,
+                            std::span<Eb, Db> b) {
+    return svs::distance::compute(dist, a, b);
+}
+
+template <typename Ea, typename Eb, size_t Da, size_t Db>
+float computeVecSimDistance(svs::distance::DistanceIP dist, std::span<Ea, Da> a,
+                            std::span<Eb, Db> b) {
+    return 1.0f - svs::distance::compute(dist, a, b);
+}
+
+template <typename Ea, typename Eb, size_t Da, size_t Db>
+float computeVecSimDistance(svs::distance::DistanceCosineSimilarity /*dist*/, std::span<Ea, Da> a,
+                            std::span<Eb, Db> b) {
+    // VecSim uses IP for Cosine distance
+    return computeVecSimDistance(svs::distance::DistanceIP{}, a, b);
+}
+
+} // namespace details
+
 // TODO(rfsaliev)
 //  * remove VecSimIndexAbstract from inheritance chain
 //  * wrap vamana_idx into a handler with init()/get() to avoid improper use risk
@@ -110,13 +133,14 @@ public:
 
     double getDistanceFrom_Unsafe(labelType label, const void *vector_data) const override {
         if (!get_vamana()->has_id(label)) {
-            return INFINITY;
+            return std::numeric_limits<double>::quiet_NaN();
         };
 
         auto index_impl = get_vamana(); //->get_impl()->get_impl();
         auto my_datum = index_impl->get_datum(label);
         dist_type dist_f = index_impl->distance_function();
-        return svs::distance::compute(
+
+        return details::computeVecSimDistance(
             dist_f, std::span{reinterpret_cast<const DataType *>(vector_data), params_.dim},
             my_datum);
     }
