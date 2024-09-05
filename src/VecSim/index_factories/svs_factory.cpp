@@ -5,23 +5,9 @@
 
 namespace SVSFactory {
 
-// Can and should be deduplicated from the other factories
-static AbstractIndexInitParams NewAbstractInitParams(const VecSimParams *params) {
-    const SVSParams *svsParams = &params->algoParams.svsParams;
-    AbstractIndexInitParams abstractInitParams = {.allocator =
-                                                      VecSimAllocator::newVecsimAllocator(),
-                                                  .dim = svsParams->dim,
-                                                  .vecType = svsParams->type,
-                                                  .metric = svsParams->metric,
-                                                  .blockSize = svsParams->blockSize,
-                                                  .multi = svsParams->multi,
-                                                  .logCtx = params->logCtx};
-    return abstractInitParams;
-}
-
 template <typename DataType>
 VecSimIndex *NewIndex(const SVSParams *svsParams,
-                      const AbstractIndexInitParams &abstractInitParams) {
+                      const std::shared_ptr<VecSimAllocator>& allocator) {
     /* In fact, there is no need of NewAbstractInitParams for the Vamana/SVS algorithm.
      * However, the established pattern in VecSim is to inherit all index classes
      * from an abstract VecSimIndexAbstract class.
@@ -30,15 +16,15 @@ VecSimIndex *NewIndex(const SVSParams *svsParams,
      */
     switch (svsParams->metric) {
     case VecSimMetric_L2:
-        return new (abstractInitParams.allocator)
-            SVSIndex<DataType, svs::distance::DistanceL2>(svsParams, abstractInitParams);
+        return new (allocator)
+            SVSIndex<DataType, svs::distance::DistanceL2>(svsParams, allocator);
     case VecSimMetric_IP:
-        return new (abstractInitParams.allocator)
-            SVSIndex<DataType, svs::distance::DistanceIP>(svsParams, abstractInitParams);
+        return new (allocator)
+            SVSIndex<DataType, svs::distance::DistanceIP>(svsParams, allocator);
     case VecSimMetric_Cosine:
-        return new (abstractInitParams.allocator)
+        return new (allocator)
             SVSIndex<DataType, svs::distance::DistanceCosineSimilarity>(svsParams,
-                                                                        abstractInitParams);
+                                                                        allocator);
     default:
         // If we got here something is wrong.
         assert(false && "Unknown distance metric type");
@@ -48,11 +34,11 @@ VecSimIndex *NewIndex(const SVSParams *svsParams,
 
 VecSimIndex *NewIndex(const VecSimParams *params) {
     const SVSParams *svsParams = &params->algoParams.svsParams;
-    auto abstractInitParams = NewAbstractInitParams(params);
+    auto allocator = VecSimAllocator::newVecsimAllocator();
 
     switch (svsParams->type) {
     case VecSimType_FLOAT32:
-        return NewIndex<float>(svsParams, abstractInitParams);
+        return NewIndex<float>(svsParams, allocator);
     default:
         // If we got here something is wrong.
         assert(false && "Unsupported data type");

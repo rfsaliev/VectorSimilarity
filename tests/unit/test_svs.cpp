@@ -56,11 +56,11 @@ TYPED_TEST(SVSTest, svs_vector_add_test) {
 
     VecSimIndex *index = this->CreateNewIndex(params);
 
-    ASSERT_EQ(VecSimIndex_IndexSize(index), 0);
+    EXPECT_EQ(VecSimIndex_IndexSize(index), 0);
 
     GenerateAndAddVector<TEST_DATA_T>(index, dim, 1);
 
-    ASSERT_EQ(VecSimIndex_IndexSize(index), 1);
+    EXPECT_EQ(VecSimIndex_IndexSize(index), 1);
 
     VecSimIndex_Free(index);
 }
@@ -86,17 +86,17 @@ TYPED_TEST(SVSTest, svs_vector_update_test) {
 
     SVSIndex<TEST_DATA_T, TEST_DIST_T> *svs_index = this->CastToSVS(index);
 
-    ASSERT_EQ(VecSimIndex_IndexSize(index), 0);
+    EXPECT_EQ(VecSimIndex_IndexSize(index), 0);
 
     GenerateAndAddVector<TEST_DATA_T>(index, dim, 1);
 
-    ASSERT_EQ(VecSimIndex_IndexSize(index), 1);
+    EXPECT_EQ(VecSimIndex_IndexSize(index), 1);
 
     // Prepare new vector data and call addVector with the same id, different data.
     GenerateAndAddVector<TEST_DATA_T>(index, dim, 1, 2.0);
 
     // Index size shouldn't change.
-    ASSERT_EQ(VecSimIndex_IndexSize(index), 1);
+    EXPECT_EQ(VecSimIndex_IndexSize(index), 1);
 
     // // The idTolabel mapping size should be aligned with the current index *capacity* (not its
     // size)
@@ -112,7 +112,7 @@ TYPED_TEST(SVSTest, svs_vector_update_test) {
 
     // Delete the last vector.
     VecSimIndex_DeleteVector(index, 1);
-    ASSERT_EQ(VecSimIndex_IndexSize(index), 0);
+    EXPECT_EQ(VecSimIndex_IndexSize(index), 0);
 
     // // VectorBlocks vector is empty.
     // ASSERT_EQ(svs_index->vectorBlocks.size(), 0);
@@ -154,7 +154,7 @@ TYPED_TEST(SVSTest, svs_vector_search_by_id_test) {
     ASSERT_EQ(VecSimIndex_IndexSize(index), n);
 
     TEST_DATA_T query[] = {50, 50, 50, 50};
-    auto verify_res = [&](size_t id, double score, size_t index) { ASSERT_EQ(id, (index + 45)); };
+    auto verify_res = [&](size_t id, double score, size_t index) { EXPECT_EQ(id, (index + 45)); };
     runTopKSearchTest(index, query, k, verify_res, nullptr, BY_ID);
 
     VecSimIndex_Free(index);
@@ -234,6 +234,156 @@ TYPED_TEST(SVSTest, svs_get_distance) {
     for (size_t i = 0; i < numIndex; i++) {
         VecSimIndex_Free(index[i]);
     }
+}
+
+TYPED_TEST(SVSTest, svs_indexing_same_vector) {
+    size_t n = 100;
+    size_t k = 10;
+    size_t dim = 4;
+
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_L2,
+        .initialCapacity = 200,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
+
+    VecSimIndex *index = this->CreateNewIndex(params);
+
+    for (size_t i = 0; i < n; i++) {
+        GenerateAndAddVector<TEST_DATA_T>(index, dim, i,
+                                          i / 10); // i / 10 is in integer (take the "floor" value).
+    }
+    ASSERT_EQ(VecSimIndex_IndexSize(index), n);
+
+    // Run a query where all the results are supposed to be {5,5,5,5} (different ids).
+    TEST_DATA_T query[] = {4.9, 4.95, 5.05, 5.1};
+    auto verify_res = [&](size_t id, double score, size_t index) {
+        ASSERT_TRUE(id >= 50 && id < 60 && score <= 1);
+    };
+    runTopKSearchTest(index, query, k, verify_res);
+
+    VecSimIndex_Free(index);
+}
+
+TYPED_TEST(SVSTest, svs_reindexing_same_vector) {
+    size_t n = 100;
+    size_t k = 10;
+    size_t dim = 4;
+
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_L2,
+        .initialCapacity = 200,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
+
+    VecSimIndex *index = this->CreateNewIndex(params);
+
+    // SVSIndex<TEST_DATA_T, TEST_DIST_T> *bf_index = this->CastToBF(index);
+
+    for (size_t i = 0; i < n; i++) {
+        // i / 10 is in integer (take the "floor" value).
+        GenerateAndAddVector<TEST_DATA_T>(index, dim, i, i / 10);
+    }
+    ASSERT_EQ(VecSimIndex_IndexSize(index), n);
+
+    // Run a query where all the results are supposed to be {5,5,5,5} (different ids).
+    TEST_DATA_T query[] = {4.9, 4.95, 5.05, 5.1};
+    auto verify_res = [&](size_t id, double score, size_t index) {
+        ASSERT_TRUE(id >= 50 && id < 60 && score <= 1);
+    };
+    runTopKSearchTest(index, query, k, verify_res);
+
+    // Delete all vectors.
+    for (size_t i = 0; i < n; i++) {
+        VecSimIndex_DeleteVector(index, i);
+    }
+    ASSERT_EQ(VecSimIndex_IndexSize(index), 0);
+
+    // // The vector block should be removed.
+    // ASSERT_EQ(bf_index->getVectorBlocks().size(), 0);
+
+    // // id2label size and capacity should turn to zero.
+    // ASSERT_EQ(bf_index->idToLabelMapping.size(), 0);
+
+    // Reinsert the same vectors under the same ids.
+    for (size_t i = 0; i < n; i++) {
+        // i / 10 is in integer (take the "floor value).
+        GenerateAndAddVector<TEST_DATA_T>(index, dim, i, i / 10);
+    }
+    ASSERT_EQ(VecSimIndex_IndexSize(index), n);
+
+    // Run the same query again.
+    runTopKSearchTest(index, query, k, verify_res);
+
+    VecSimIndex_Free(index);
+}
+
+TYPED_TEST(SVSTest, svs_reindexing_same_vector_different_id) {
+    size_t n = 100;
+    size_t k = 10;
+    size_t dim = 4;
+
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_L2,
+        .initialCapacity = 200,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
+
+    VecSimIndex *index = this->CreateNewIndex(params);
+
+    for (size_t i = 0; i < n; i++) {
+        GenerateAndAddVector<TEST_DATA_T>(index, dim, i,
+                                          i / 10); // i / 10 is in integer (take the "floor" value).
+    }
+    ASSERT_EQ(VecSimIndex_IndexSize(index), n);
+
+    // Run a query where all the results are supposed to be {5,5,5,5} (different ids).
+    TEST_DATA_T query[] = {4.9, 4.95, 5.05, 5.1};
+    auto verify_res = [&](size_t id, double score, size_t index) {
+        ASSERT_TRUE(id >= 50 && id < 60 && score <= 1);
+    };
+    runTopKSearchTest(index, query, k, verify_res);
+
+    for (size_t i = 0; i < n; i++) {
+        VecSimIndex_DeleteVector(index, i);
+    }
+    ASSERT_EQ(VecSimIndex_IndexSize(index), 0);
+
+    // Reinsert the same vectors under different ids than before.
+    for (size_t i = 0; i < n; i++) {
+        GenerateAndAddVector<TEST_DATA_T>(index, dim, i + 10,
+                                          i / 10); // i / 10 is in integer (take the "floor" value).
+    }
+    ASSERT_EQ(VecSimIndex_IndexSize(index), n);
+
+    // Run the same query again.
+    auto verify_res_different_id = [&](size_t id, double score, size_t index) {
+        ASSERT_TRUE(id >= 60 && id < 70 && score <= 1);
+    };
+    runTopKSearchTest(index, query, k, verify_res_different_id);
+
+    VecSimIndex_Free(index);
 }
 
 #if 0 // Disabled tests
@@ -397,123 +547,6 @@ TYPED_TEST(SVSTest, svs_empty_index) {
     ASSERT_EQ(expected_capacity, bf_index->idToLabelMapping.size());
     // Nor the size.
     ASSERT_EQ(VecSimIndex_IndexSize(index), 0);
-
-    VecSimIndex_Free(index);
-}
-
-TYPED_TEST(SVSTest, svs_indexing_same_vector) {
-    size_t n = 100;
-    size_t k = 10;
-    size_t dim = 4;
-
-    BFParams params = {.dim = dim, .metric = VecSimMetric_L2, .initialCapacity = 200};
-
-    VecSimIndex *index = this->CreateNewIndex(params);
-
-    for (size_t i = 0; i < n; i++) {
-        GenerateAndAddVector<TEST_DATA_T>(index, dim, i,
-                                          i / 10); // i / 10 is in integer (take the "floor" value).
-    }
-    ASSERT_EQ(VecSimIndex_IndexSize(index), n);
-
-    // Run a query where all the results are supposed to be {5,5,5,5} (different ids).
-    TEST_DATA_T query[] = {4.9, 4.95, 5.05, 5.1};
-    auto verify_res = [&](size_t id, double score, size_t index) {
-        ASSERT_TRUE(id >= 50 && id < 60 && score <= 1);
-    };
-    runTopKSearchTest(index, query, k, verify_res);
-
-    VecSimIndex_Free(index);
-}
-
-TYPED_TEST(SVSTest, svs_reindexing_same_vector) {
-    size_t n = 100;
-    size_t k = 10;
-    size_t dim = 4;
-
-    BFParams params = {.dim = dim, .metric = VecSimMetric_L2};
-
-    VecSimIndex *index = this->CreateNewIndex(params);
-
-    SVSIndex<TEST_DATA_T, TEST_DIST_T> *bf_index = this->CastToBF(index);
-
-    for (size_t i = 0; i < n; i++) {
-        // i / 10 is in integer (take the "floor" value).
-        GenerateAndAddVector<TEST_DATA_T>(index, dim, i, i / 10);
-    }
-    ASSERT_EQ(VecSimIndex_IndexSize(index), n);
-
-    // Run a query where all the results are supposed to be {5,5,5,5} (different ids).
-    TEST_DATA_T query[] = {4.9, 4.95, 5.05, 5.1};
-    auto verify_res = [&](size_t id, double score, size_t index) {
-        ASSERT_TRUE(id >= 50 && id < 60 && score <= 1);
-    };
-    runTopKSearchTest(index, query, k, verify_res);
-
-    // Delete all vectors.
-    for (size_t i = 0; i < n; i++) {
-        VecSimIndex_DeleteVector(index, i);
-    }
-    ASSERT_EQ(VecSimIndex_IndexSize(index), 0);
-
-    // The vector block should be removed.
-    ASSERT_EQ(bf_index->getVectorBlocks().size(), 0);
-
-    // id2label size and capacity should turn to zero.
-    ASSERT_EQ(bf_index->idToLabelMapping.size(), 0);
-
-    // Reinsert the same vectors under the same ids.
-    for (size_t i = 0; i < n; i++) {
-        // i / 10 is in integer (take the "floor value).
-        GenerateAndAddVector<TEST_DATA_T>(index, dim, i, i / 10);
-    }
-    ASSERT_EQ(VecSimIndex_IndexSize(index), n);
-
-    // Run the same query again.
-    runTopKSearchTest(index, query, k, verify_res);
-
-    VecSimIndex_Free(index);
-}
-
-TYPED_TEST(SVSTest, svs_reindexing_same_vector_different_id) {
-    size_t n = 100;
-    size_t k = 10;
-    size_t dim = 4;
-
-    BFParams params = {.dim = dim, .metric = VecSimMetric_L2, .initialCapacity = 200};
-
-    VecSimIndex *index = this->CreateNewIndex(params);
-
-    for (size_t i = 0; i < n; i++) {
-        GenerateAndAddVector<TEST_DATA_T>(index, dim, i,
-                                          i / 10); // i / 10 is in integer (take the "floor" value).
-    }
-    ASSERT_EQ(VecSimIndex_IndexSize(index), n);
-
-    // Run a query where all the results are supposed to be {5,5,5,5} (different ids).
-    TEST_DATA_T query[] = {4.9, 4.95, 5.05, 5.1};
-    auto verify_res = [&](size_t id, double score, size_t index) {
-        ASSERT_TRUE(id >= 50 && id < 60 && score <= 1);
-    };
-    runTopKSearchTest(index, query, k, verify_res);
-
-    for (size_t i = 0; i < n; i++) {
-        VecSimIndex_DeleteVector(index, i);
-    }
-    ASSERT_EQ(VecSimIndex_IndexSize(index), 0);
-
-    // Reinsert the same vectors under different ids than before.
-    for (size_t i = 0; i < n; i++) {
-        GenerateAndAddVector<TEST_DATA_T>(index, dim, i + 10,
-                                          i / 10); // i / 10 is in integer (take the "floor" value).
-    }
-    ASSERT_EQ(VecSimIndex_IndexSize(index), n);
-
-    // Run the same query again.
-    auto verify_res_different_id = [&](size_t id, double score, size_t index) {
-        ASSERT_TRUE(id >= 60 && id < 70 && score <= 1);
-    };
-    runTopKSearchTest(index, query, k, verify_res_different_id);
 
     VecSimIndex_Free(index);
 }
