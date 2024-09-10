@@ -26,7 +26,8 @@
 #include <limits>
 #include <vector>
 
-#include "svs/orchestrators/dynamic_vamana.h"
+#include "svs/index/vamana/dynamic_index.h"
+#include "VecSim/algorithms/svs/svs_batch_iterator.h"
 
 namespace details {
 // Adjust SVS distance computation to VecSim
@@ -57,8 +58,10 @@ float computeVecSimDistance(svs::distance::DistanceCosineSimilarity /*dist*/, st
 template <typename DataType, typename DistType>
 class SVSIndex : public VecSimIndexInterface {
 protected:
-    using index_storage_type = svs::data::BlockedData<DataType>;
+    using data_type = DataType;
     using dist_type = DistType;
+
+    using index_storage_type = svs::data::BlockedData<DataType>;
     using graph_type = svs::graphs::SimpleBlockedGraph<uint32_t>;
     using impl_type =
         svs::index::vamana::MutableVamanaIndex<graph_type, index_storage_type, dist_type>;
@@ -86,8 +89,8 @@ protected:
             auto dst = init_data.get_datum(0);
             std::copy(vector_data, vector_data + params_.dim, dst.begin());
 
-            vamana_idx = std::make_unique<impl_type>(MakeVamanaBuildParameters(params_), init_data, ids,
-                                                    DistType{}, num_threads());
+            vamana_idx = std::make_unique<impl_type>(MakeVamanaBuildParameters(params_), init_data,
+                                                     ids, DistType{}, num_threads());
             return 1;
         }
 
@@ -103,7 +106,6 @@ protected:
         return ret;
     }
 
-
     impl_type *get_vamana() const {
         assert(vamana_idx);
         return this->vamana_idx.get();
@@ -111,40 +113,34 @@ protected:
 
 public:
     SVSIndex(const SVSParams *params, std::shared_ptr<VecSimAllocator> allocator)
-        : VecSimIndexInterface{std::move(allocator)}, params_{*params},
-          vamana_idx{nullptr} {}
+        : VecSimIndexInterface{std::move(allocator)}, params_{*params}, vamana_idx{nullptr} {}
 
     ~SVSIndex() = default;
 
-    size_t indexSize() const override { return vamana_idx ? get_vamana()->size() : 0; }
+    size_t indexSize() const override { return get_vamana() ? get_vamana()->size() : 0; }
 
     size_t indexCapacity() const override { return indexSize() + 1; }
 
     size_t indexLabelCount() const override { return indexSize(); }
 
-
     VecSimIndexBasicInfo basicInfo() const override {
-        VecSimIndexBasicInfo info {
-            .algo = VecSimAlgo_SVS,
-            .blockSize = 1,
-            .metric = params_.metric,
-            .type = params_.type,
-            .isMulti = false,
-            .dim = params_.dim,
-            .isTiered = false
-        };
+        VecSimIndexBasicInfo info{.algo = VecSimAlgo_SVS,
+                                  .blockSize = 1,
+                                  .metric = params_.metric,
+                                  .type = params_.type,
+                                  .isMulti = false,
+                                  .dim = params_.dim,
+                                  .isTiered = false};
         return info;
     }
 
     VecSimIndexInfo info() const override {
         VecSimIndexInfo info;
-        info.commonInfo = CommonInfo{
-            .basicInfo = this->basicInfo(),
-            .indexSize = this->indexSize(),
-            .indexLabelCount = this->indexLabelCount(),
-            .memory = this->getAllocationSize(),
-            .lastMode = this->lastMode
-        };
+        info.commonInfo = CommonInfo{.basicInfo = this->basicInfo(),
+                                     .indexSize = this->indexSize(),
+                                     .indexLabelCount = this->indexLabelCount(),
+                                     .memory = this->getAllocationSize(),
+                                     .lastMode = this->lastMode};
         return info;
     }
 
@@ -152,20 +148,20 @@ public:
         VecSimIndexInfo info = this->info();
         // For readability. Update this number when needed.
         size_t numberOfInfoFields = 10;
-        VecSimInfoIterator *infoIterator = new VecSimInfoIterator(numberOfInfoFields, this->allocator);
+        VecSimInfoIterator *infoIterator =
+            new VecSimInfoIterator(numberOfInfoFields, this->allocator);
 
-        infoIterator->addInfoField(
-            VecSim_InfoField{.fieldName = VecSimCommonStrings::ALGORITHM_STRING,
-                            .fieldType = INFOFIELD_STRING,
-                            .fieldValue = {FieldValue{
-                                .stringValue = VecSimAlgo_ToString(info.commonInfo.basicInfo.algo)}}});
+        infoIterator->addInfoField(VecSim_InfoField{
+            .fieldName = VecSimCommonStrings::ALGORITHM_STRING,
+            .fieldType = INFOFIELD_STRING,
+            .fieldValue = {
+                FieldValue{.stringValue = VecSimAlgo_ToString(info.commonInfo.basicInfo.algo)}}});
         this->addCommonInfoToIterator(infoIterator, info.commonInfo);
         infoIterator->addInfoField(VecSim_InfoField{
             .fieldName = VecSimCommonStrings::BLOCK_SIZE_STRING,
             .fieldType = INFOFIELD_UINT64,
             .fieldValue = {FieldValue{.uintegerValue = info.commonInfo.basicInfo.blockSize}}});
         return infoIterator;
-
     }
 
     int addVector(const void *vector_data, labelType label, void *auxiliaryCtx = nullptr) override {
@@ -173,7 +169,7 @@ public:
     }
 
     int deleteVector(labelType label) override {
-        if (!get_vamana()->has_id(label)) {
+        if (get_vamana() == nullptr || !get_vamana()->has_id(label)) {
             return 0;
         }
         get_vamana()->delete_entries(std::span<labelType, 1>{&label, 1});
@@ -181,7 +177,7 @@ public:
     }
 
     double getDistanceFrom_Unsafe(labelType label, const void *vector_data) const override {
-        if (!get_vamana()->has_id(label)) {
+        if (get_vamana() == nullptr || !get_vamana()->has_id(label)) {
             return std::numeric_limits<double>::quiet_NaN();
         };
 
@@ -195,7 +191,12 @@ public:
     }
 
     VecSimQueryReply *topKQuery(const void *queryBlob, size_t k,
-                                VecSimQueryParams *queryParams) const override  {
+                                VecSimQueryParams *queryParams) const override {
+        auto rep = new VecSimQueryReply(this->allocator);
+        if (get_vamana() == nullptr) {
+            return rep;
+        }
+
         auto queries = svs::data::ConstSimpleDataView<DataType>{
             reinterpret_cast<const DataType *>(queryBlob), 1, params_.dim};
         auto result = svs::QueryResult<size_t>{queries.size(), k};
@@ -204,7 +205,6 @@ public:
 
         assert(result.n_queries() == 1);
 
-        auto rep = new VecSimQueryReply(this->allocator);
         for (size_t i = 0; i < result.n_neighbors(); i++) {
             rep->results.push_back(VecSimQueryResult{result.index(0, i), result.distance(0, i)});
         }
@@ -213,12 +213,45 @@ public:
 
     VecSimQueryReply *rangeQuery(const void *queryBlob, double radius,
                                  VecSimQueryParams *queryParams) const {
-        return nullptr;
+        auto rep = new VecSimQueryReply(this->allocator);
+        if (get_vamana() == nullptr) {
+            return rep;
+        }
+
+        const size_t batchSize = 10;
+        svs::index::vamana::DefaultSchedule schedule{{}, batchSize};
+        std::span<const data_type> query{reinterpret_cast<const data_type *>(queryBlob),
+                                         params_.dim};
+        svs::index::vamana::BatchIterator<impl_type, data_type> svs_it{*get_vamana(), query,
+                                                                       schedule};
+
+        bool done = false;
+        while (!done) {
+            for (auto &neighbor : svs_it) {
+                if (neighbor.distance() <= radius) {
+                    rep->results.push_back(VecSimQueryResult{neighbor.id(), neighbor.distance()});
+                    done = false;
+                } else {
+                    done = true;
+                }
+            }
+            svs_it.next();
+        }
+        return rep;
     }
 
     VecSimBatchIterator *newBatchIterator(const void *queryBlob,
                                           VecSimQueryParams *queryParams) const override {
-        return nullptr;
+        auto *queryBlobCopy = this->allocator->allocate(sizeof(DataType) * params_.dim);
+        memcpy(queryBlobCopy, queryBlob, params_.dim * sizeof(DataType));
+        // Ownership of queryBlobCopy moves to VecSimBatchIterator that will free it at the end.
+        if (get_vamana() == nullptr) {
+            return new (this->getAllocator())
+                NullSVS_BatchIterator(queryBlobCopy, queryParams, this->getAllocator());
+        } else {
+            return new (this->getAllocator()) SVS_BatchIterator<impl_type, data_type>(
+                queryBlobCopy, get_vamana(), queryParams, this->getAllocator());
+        }
     }
 
     bool preferAdHocSearch(size_t subsetSize, size_t k, bool initial_check) const override {
@@ -227,15 +260,16 @@ public:
 
     void fitMemory() override {};
 
-
-// From VecSimIndexAbstract
+    // From VecSimIndexAbstract
 private:
     // TODO(rfsaliev) modify/remove below
     size_t alignment() const { return 0; }
     size_t dataSize() const { return params_.dim * sizeof(DataType); }
-    mutable VecSearchMode lastMode = EMPTY_MODE; // The last search mode in RediSearch (used for debug/testing).
-    spaces::normalizeVector_f<DataType>
-        normalize_func = spaces::GetNormalizeFunc<DataType>(); // A pointer to a normalization function of specific type.
+    mutable VecSearchMode lastMode =
+        EMPTY_MODE; // The last search mode in RediSearch (used for debug/testing).
+    spaces::normalizeVector_f<DataType> normalize_func =
+        spaces::GetNormalizeFunc<DataType>(); // A pointer to a normalization function of specific
+                                              // type.
 
     void setLastSearchMode(VecSearchMode mode) override { this->lastMode = mode; }
 
@@ -343,6 +377,4 @@ private:
     void runGC() override {}              // Do nothing, relevant for tiered index only.
     void acquireSharedLocks() override {} // Do nothing, relevant for tiered index only.
     void releaseSharedLocks() override {} // Do nothing, relevant for tiered index only.
-
 };
-

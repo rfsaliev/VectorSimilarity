@@ -386,126 +386,257 @@ TYPED_TEST(SVSTest, svs_reindexing_same_vector_different_id) {
     VecSimIndex_Free(index);
 }
 
-#if 0 // Disabled tests
-
-/**** resizing cases ****/
-
-TYPED_TEST(SVSTest, resize_and_align_index) {
+TYPED_TEST(SVSTest, svs_batch_iterator) {
     size_t dim = 4;
-    size_t n = 14;
-    size_t blockSize = 10;
 
-    BFParams params = {
-        .dim = dim, .metric = VecSimMetric_L2, .initialCapacity = n, .blockSize = blockSize};
+    // run the test twice - for index of size 100, every iteration will run select-based search,
+    // as the number of results is 5, which is more than 0.1% of the index size. for index of size
+    // 10000, we will run the heap-based search until we return 5000 results, and then switch to
+    // select-based search.
+    for (size_t n : {100, 10000}) {
+        SVSParams params = {
+            .dim = dim,
+            .metric = VecSimMetric_L2,
+            .initialCapacity = n,
+            /* SVS-Vamana specifics */
+            .alpha = 1.2,
+            .graph_max_degree = 64,
+            .window_size = 20,
+            .max_candidate_pool_size = 1024,
+            .prune_to = 60,
+            .use_full_search_history = true,
+        };
+
+        VecSimIndex *index = this->CreateNewIndex(params);
+        for (size_t i = 0; i < n; i++) {
+            GenerateAndAddVector<TEST_DATA_T>(index, dim, i, i);
+        }
+        ASSERT_EQ(VecSimIndex_IndexSize(index), n);
+
+        // Query for (n,n,...,n) vector (recall that n is the largest id in te index).
+        TEST_DATA_T query[dim];
+        GenerateVector<TEST_DATA_T>(query, dim, n);
+
+        VecSimBatchIterator *batchIterator = VecSimBatchIterator_New(index, query, nullptr);
+        size_t iteration_num = 0;
+
+        // Get the 10 vectors whose ids are the maximal among those that hasn't been returned yet,
+        // in every iteration. The order should be from the largest to the lowest id.
+        size_t n_res = 20;
+        while (VecSimBatchIterator_HasNext(batchIterator)) {
+            std::vector<size_t> expected_ids(n_res);
+            for (size_t i = 0; i < n_res; i++) {
+                expected_ids[i] = (n - iteration_num * n_res - i - 1);
+            }
+            auto verify_res = [&](size_t id, double score, size_t index) {
+                ASSERT_TRUE(expected_ids[index] == id);
+            };
+            runBatchIteratorSearchTest(batchIterator, n_res, verify_res);
+            iteration_num++;
+        }
+        ASSERT_EQ(iteration_num, n / n_res);
+        VecSimBatchIterator_Free(batchIterator);
+
+        VecSimIndex_Free(index);
+    }
+}
+
+TYPED_TEST(SVSTest, svs_batch_iterator_non_unique_scores) {
+    size_t dim = 4;
+
+    // Run the test twice - for index of size 100, every iteration will run select-based search,
+    // as the number of results is 5, which is more than 0.1% of the index size. for index of size
+    // 10000, we will run the heap-based search until we return 5000 results, and then switch to
+    // select-based search.
+    for (size_t n : {100, 10000}) {
+        SVSParams params = {
+            .dim = dim,
+            .metric = VecSimMetric_L2,
+            .initialCapacity = n,
+            /* SVS-Vamana specifics */
+            .alpha = 1.2,
+            .graph_max_degree = 64,
+            .window_size = 20,
+            .max_candidate_pool_size = 1024,
+            .prune_to = 60,
+            .use_full_search_history = true,
+        };
+
+        VecSimIndex *index = this->CreateNewIndex(params);
+
+        for (size_t i = 0; i < n; i++) {
+            GenerateAndAddVector<TEST_DATA_T>(index, dim, i, i / 10);
+        }
+        ASSERT_EQ(VecSimIndex_IndexSize(index), n);
+
+        // Query for (n,n,...,n) vector (recall that n is the largest id in te index).
+        TEST_DATA_T query[dim];
+        GenerateVector<TEST_DATA_T>(query, dim, n);
+
+        VecSimBatchIterator *batchIterator = VecSimBatchIterator_New(index, query, nullptr);
+        size_t iteration_num = 0;
+
+        // Get the 5 vectors whose ids are the maximal among those that hasn't been returned yet, in
+        // every iteration. there are n/10 groups of 10 different vectors with the same score.
+        size_t n_res = 5;
+        bool even_iteration = false;
+        std::set<size_t> expected_ids;
+        while (VecSimBatchIterator_HasNext(batchIterator)) {
+            // Insert the maximal 10 ids in every odd iteration.
+            if (!even_iteration) {
+                for (size_t i = 1; i <= 2 * n_res; i++) {
+                    expected_ids.insert(n - iteration_num * n_res - i);
+                }
+            }
+            auto verify_res = [&](size_t id, double score, size_t index) {
+                ASSERT_TRUE(expected_ids.find(id) != expected_ids.end());
+                expected_ids.erase(id);
+            };
+            runBatchIteratorSearchTest(batchIterator, n_res, verify_res);
+            // Make sure that the expected ids set is empty after two iterations.
+            if (even_iteration) {
+                ASSERT_TRUE(expected_ids.empty());
+            }
+            iteration_num++;
+            even_iteration = !even_iteration;
+        }
+        ASSERT_EQ(iteration_num, n / n_res);
+        VecSimBatchIterator_Free(batchIterator);
+
+        VecSimIndex_Free(index);
+    }
+}
+
+TYPED_TEST(SVSTest, svs_batch_iterator_reset) {
+    size_t dim = 4;
+    size_t n = 10000;
+
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_L2,
+        .initialCapacity = n,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
 
     VecSimIndex *index = this->CreateNewIndex(params);
-
-    SVSIndex<TEST_DATA_T, TEST_DIST_T> *bf_index = this->CastToBF(index);
-    ASSERT_EQ(VecSimIndex_IndexSize(index), 0);
 
     for (size_t i = 0; i < n; i++) {
         GenerateAndAddVector<TEST_DATA_T>(index, dim, i, i);
     }
-    ASSERT_EQ(bf_index->idToLabelMapping.size(), 2 * blockSize);
     ASSERT_EQ(VecSimIndex_IndexSize(index), n);
 
-    // remove invalid id
-    VecSimIndex_DeleteVector(index, 3459);
+    // Query for (n,n,...,n) vector (recall that n is the largest id in te index).
+    TEST_DATA_T query[dim];
+    GenerateVector<TEST_DATA_T>(query, dim, n);
+    VecSimBatchIterator *batchIterator = VecSimBatchIterator_New(index, query, nullptr);
 
-    // This should do nothing
-    ASSERT_EQ(VecSimIndex_IndexSize(index), n);
-    ASSERT_EQ(bf_index->idToLabelMapping.size(), 2 * blockSize);
+    // Get the 100 vectors whose ids are the maximal among those that hasn't been returned yet, in
+    // every iteration. run this flow for 5 times, each time for 10 iteration, and reset the
+    // iterator.
+    size_t n_res = 100;
+    size_t total_iteration = 5;
+    size_t re_runs = 3;
 
-    // Add another vector, since index size equals to the capacity, this should cause resizing
-    // (to fit a multiplication of block_size).
-    GenerateAndAddVector<TEST_DATA_T>(index, dim, n);
-    ASSERT_EQ(VecSimIndex_IndexSize(index), n + 1);
-    // Capacity and size should remain blockSize * 2.
-    ASSERT_EQ(bf_index->idToLabelMapping.size(), 2 * blockSize);
-    ASSERT_EQ(bf_index->idToLabelMapping.capacity(), 2 * blockSize);
-
-    // Now size = n + 1 (= 15), capacity = 2 * bs (= 20). Test capacity overflow again
-    // to check that it stays aligned with block size.
-
-    size_t add_vectors_count = 8;
-    for (size_t i = 0; i < add_vectors_count; i++) {
-        GenerateAndAddVector<TEST_DATA_T>(index, dim, n + 2 + i, i);
+    for (size_t take = 0; take < re_runs; take++) {
+        size_t iteration_num = 0;
+        while (VecSimBatchIterator_HasNext(batchIterator)) {
+            std::set<size_t> expected_ids;
+            for (size_t i = 1; i <= n_res; i++) {
+                expected_ids.insert(n - iteration_num * n_res - i);
+            }
+            auto verify_res = [&](size_t id, double score, size_t index) {
+                ASSERT_TRUE(expected_ids.find(id) != expected_ids.end());
+                expected_ids.erase(id);
+            };
+            runBatchIteratorSearchTest(batchIterator, n_res, verify_res);
+            iteration_num++;
+            if (iteration_num == total_iteration) {
+                break;
+            }
+        }
+        VecSimBatchIterator_Reset(batchIterator);
     }
-
-    // Size should be n + 1 + 8 (= 25).
-    ASSERT_EQ(VecSimIndex_IndexSize(index), n + 1 + add_vectors_count);
-
-    // Check new capacity size, should be blockSize * 3.
-    ASSERT_EQ(bf_index->idToLabelMapping.size(), 3 * blockSize);
-    ASSERT_EQ(bf_index->idToLabelMapping.capacity(), 3 * blockSize);
-
+    VecSimBatchIterator_Free(batchIterator);
     VecSimIndex_Free(index);
 }
 
-// Case 1: initial capacity is larger than block size, and it is not aligned.
-TYPED_TEST(SVSTest, resize_and_align_index_largeInitialCapacity) {
+TYPED_TEST(SVSTest, svs_batch_iterator_corner_cases) {
     size_t dim = 4;
-    size_t n = 10; // Determines the initial index capacity
-    size_t bs = 3;
+    size_t n = 1000;
 
-    BFParams params = {
-        .dim = dim, .metric = VecSimMetric_L2, .initialCapacity = n, .blockSize = bs};
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_L2,
+        .initialCapacity = n,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
 
     VecSimIndex *index = this->CreateNewIndex(params);
 
-    SVSIndex<TEST_DATA_T, TEST_DIST_T> *bf_index = this->CastToBF(index);
-    ASSERT_EQ(VecSimIndex_IndexSize(index), 0);
-    // The expected_capacity size should be aligned with the index capacity (multiplication of bs)
-    size_t expected_capacity = n - n % bs + bs;
-    ASSERT_EQ(bf_index->idToLabelMapping.size(), expected_capacity);
+    // Query for (n,n,...,n) vector (recall that n is the largest id in te index).
+    TEST_DATA_T query[dim];
+    GenerateVector<TEST_DATA_T>(query, dim, n);
 
-    // Add up to block size + 1 = 3 + 1 = 4
-    for (size_t i = 0; i < bs + 1; i++) {
+    // Create batch iterator for empty index.
+    VecSimBatchIterator *batchIterator = VecSimBatchIterator_New(index, query, nullptr);
+    // Try to get more results even though there are no.
+    VecSimQueryReply *res = VecSimBatchIterator_Next(batchIterator, 1, BY_SCORE);
+    ASSERT_EQ(VecSimQueryReply_Len(res), 0);
+    VecSimQueryReply_Free(res);
+    // Retry to get results.
+    res = VecSimBatchIterator_Next(batchIterator, 1, BY_SCORE);
+    ASSERT_EQ(VecSimQueryReply_Len(res), 0);
+    VecSimQueryReply_Free(res);
+    VecSimBatchIterator_Free(batchIterator);
+
+    for (size_t i = 0; i < n; i++) {
         GenerateAndAddVector<TEST_DATA_T>(index, dim, i, i);
     }
-    // Capacity shouldn't change, since size < cap.
-    ASSERT_EQ(bf_index->idToLabelMapping.size(), expected_capacity);
-    ASSERT_EQ(VecSimIndex_IndexSize(index), bs + 1);
+    ASSERT_EQ(VecSimIndex_IndexSize(index), n);
 
-    // Delete last vector, to get size % block_size == 0. size = 3
-    VecSimIndex_DeleteVector(index, bs);
+    batchIterator = VecSimBatchIterator_New(index, query, nullptr);
 
-    // Index size = bs = 3.
-    ASSERT_EQ(VecSimIndex_IndexSize(index), bs);
+    // Ask for zero results.
+    res = VecSimBatchIterator_Next(batchIterator, 0, BY_SCORE);
+    ASSERT_EQ(VecSimQueryReply_Len(res), 0);
+    VecSimQueryReply_Free(res);
 
-    // Expect that mapping size and capacity will decrease by one block.
-    expected_capacity -= bs;
-    ASSERT_EQ(bf_index->idToLabelMapping.size(), expected_capacity);
-    ASSERT_EQ(bf_index->idToLabelMapping.capacity(), expected_capacity);
+    // Get all in first iteration, expect to use select search.
+    size_t n_res = n;
+    auto verify_res = [&](size_t id, double score, size_t index) {
+        ASSERT_TRUE(id == n - 1 - index);
+    };
+    runBatchIteratorSearchTest(batchIterator, n_res, verify_res);
+    ASSERT_FALSE(VecSimBatchIterator_HasNext(batchIterator));
 
-    // Delete all the vectors (all in one block). Expect to decrease idToLabelMapping size in
-    // another block upon deleting the last one.
-    size_t i = 0;
-    while (VecSimIndex_IndexSize(index) > 0) {
-        VecSimIndex_DeleteVector(index, i);
-        ++i;
-    }
-    expected_capacity -= bs;
-    ASSERT_EQ(bf_index->idToLabelMapping.size(), expected_capacity);
-    ASSERT_EQ(bf_index->idToLabelMapping.capacity(), expected_capacity);
+    // Try to get more results even though there are no.
+    res = VecSimBatchIterator_Next(batchIterator, n_res, BY_SCORE);
+    ASSERT_EQ(VecSimQueryReply_Len(res), 0);
+    VecSimQueryReply_Free(res);
 
-    // Insert and delete one vector. Upon deletion, capacity will be resized again (to 3).
-    GenerateAndAddVector<TEST_DATA_T>(index, dim, 0);
-    ASSERT_EQ(bf_index->idToLabelMapping.size(), expected_capacity);
-    ASSERT_EQ(bf_index->idToLabelMapping.capacity(), expected_capacity);
-    VecSimIndex_DeleteVector(index, 0);
-    expected_capacity -= bs;
-    ASSERT_EQ(bf_index->idToLabelMapping.size(), expected_capacity);
-    ASSERT_EQ(bf_index->idToLabelMapping.capacity(), expected_capacity);
+    // Reset, and run in batches, but the final batch is partial.
+    VecSimBatchIterator_Reset(batchIterator);
+    res = VecSimBatchIterator_Next(batchIterator, n_res / 2, BY_SCORE);
+    ASSERT_EQ(VecSimQueryReply_Len(res), n / 2);
+    VecSimQueryReply_Free(res);
+    res = VecSimBatchIterator_Next(batchIterator, n_res / 2 + 1, BY_SCORE);
+    ASSERT_EQ(VecSimQueryReply_Len(res), n / 2);
+    VecSimQueryReply_Free(res);
+    ASSERT_FALSE(VecSimBatchIterator_HasNext(batchIterator));
 
-    // Repeat this, now we expect that capacity will be resized to zero.
-    GenerateAndAddVector<TEST_DATA_T>(index, dim, 0);
-    ASSERT_EQ(bf_index->idToLabelMapping.size(), expected_capacity);
-    ASSERT_EQ(bf_index->idToLabelMapping.capacity(), expected_capacity);
-    VecSimIndex_DeleteVector(index, 0);
-    expected_capacity -= bs;
-    ASSERT_EQ(bf_index->idToLabelMapping.size(), 0);
-    ASSERT_EQ(bf_index->idToLabelMapping.capacity(), 0);
+    VecSimBatchIterator_Free(batchIterator);
     VecSimIndex_Free(index);
 }
 
@@ -513,17 +644,23 @@ TYPED_TEST(SVSTest, resize_and_align_index_largeInitialCapacity) {
 TYPED_TEST(SVSTest, svs_empty_index) {
     size_t dim = 4;
     size_t n = 20;
-    size_t bs = 6;
 
-    BFParams params = {
-        .dim = dim, .metric = VecSimMetric_L2, .initialCapacity = n, .blockSize = bs};
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_L2,
+        .initialCapacity = n,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
 
     VecSimIndex *index = this->CreateNewIndex(params);
 
-    SVSIndex<TEST_DATA_T, TEST_DIST_T> *bf_index = this->CastToBF(index);
     ASSERT_EQ(VecSimIndex_IndexSize(index), 0);
-    size_t expected_capacity = n - n % bs + bs;
-    ASSERT_EQ(expected_capacity, bf_index->idToLabelMapping.size());
 
     // Try to remove from an empty index - should fail because label doesn't exist.
     VecSimIndex_DeleteVector(index, 0);
@@ -531,25 +668,26 @@ TYPED_TEST(SVSTest, svs_empty_index) {
     // Add one vector.
     GenerateAndAddVector<TEST_DATA_T>(index, dim, 1, 1.7);
 
+    // Size equals 1.
+    ASSERT_EQ(VecSimIndex_IndexSize(index), 1);
+
     // Try to remove it.
     VecSimIndex_DeleteVector(index, 1);
     // The expected_capacity should decrease in one block.
-    expected_capacity -= bs;
-    ASSERT_EQ(expected_capacity, bf_index->idToLabelMapping.size());
 
     // Size equals 0.
     ASSERT_EQ(VecSimIndex_IndexSize(index), 0);
 
     // Try to remove it again.
-    // The idToLabelMapping_size should remain unchanged, as we are trying to delete a label that
-    // doesn't exist.
     VecSimIndex_DeleteVector(index, 1);
-    ASSERT_EQ(expected_capacity, bf_index->idToLabelMapping.size());
     // Nor the size.
     ASSERT_EQ(VecSimIndex_IndexSize(index), 0);
 
     VecSimIndex_Free(index);
 }
+
+////////////////////////////////////////////////////////////////////////////////
+#if 0  // Disabled tests
 
 TYPED_TEST(SVSTest, test_delete_swap_block) {
     size_t initial_capacity = 5; // idToLabelMapping initial size.
@@ -625,18 +763,6 @@ TYPED_TEST(SVSTest, test_delete_swap_block) {
     runTopKSearchTest(index, query, k, verify_res);
     VecSimIndex_Free(index);
 }
-
-#ifdef CPU_FEATURES_ARCH_X86_64
-TYPED_TEST(SVSTest, AlignmentSanity) {
-    BFParams params = {.dim = 512};
-    VecSimIndex *index = this->CreateNewIndex(params);
-    auto *bf = this->CastToBF(index);
-    // Assuming we have some optimizations (at least SSE), the alignment should be non-zero
-    // (Register byte size)
-    ASSERT_NE(bf->getAlignment(), 0);
-    VecSimIndex_Free(index);
-}
-#endif
 
 TYPED_TEST(SVSTest, sanity_reinsert_1280) {
     size_t n = 5;
@@ -1040,218 +1166,6 @@ TYPED_TEST(SVSTest, svs_zero_minimal_capacity) {
     // id2label size should be the same as index size
     ASSERT_EQ(bf_index->idToLabelMapping.size(), 0);
 
-    VecSimIndex_Free(index);
-}
-
-TYPED_TEST(SVSTest, svs_batch_iterator) {
-    size_t dim = 4;
-
-    // run the test twice - for index of size 100, every iteration will run select-based search,
-    // as the number of results is 5, which is more than 0.1% of the index size. for index of size
-    // 10000, we will run the heap-based search until we return 5000 results, and then switch to
-    // select-based search.
-    for (size_t n : {100, 10000}) {
-        BFParams params = {
-            .dim = dim, .metric = VecSimMetric_L2, .initialCapacity = n, .blockSize = 5};
-
-        VecSimIndex *index = this->CreateNewIndex(params);
-        for (size_t i = 0; i < n; i++) {
-            GenerateAndAddVector<TEST_DATA_T>(index, dim, i, i);
-        }
-        ASSERT_EQ(VecSimIndex_IndexSize(index), n);
-
-        // Query for (n,n,...,n) vector (recall that n is the largest id in te index).
-        TEST_DATA_T query[dim];
-        GenerateVector<TEST_DATA_T>(query, dim, n);
-
-        VecSimBatchIterator *batchIterator = VecSimBatchIterator_New(index, query, nullptr);
-        size_t iteration_num = 0;
-
-        // Get the 10 vectors whose ids are the maximal among those that hasn't been returned yet,
-        // in every iteration. The order should be from the largest to the lowest id.
-        size_t n_res = 5;
-        while (VecSimBatchIterator_HasNext(batchIterator)) {
-            std::vector<size_t> expected_ids(n_res);
-            for (size_t i = 0; i < n_res; i++) {
-                expected_ids[i] = (n - iteration_num * n_res - i - 1);
-            }
-            auto verify_res = [&](size_t id, double score, size_t index) {
-                ASSERT_TRUE(expected_ids[index] == id);
-            };
-            runBatchIteratorSearchTest(batchIterator, n_res, verify_res);
-            iteration_num++;
-        }
-        ASSERT_EQ(iteration_num, n / n_res);
-        VecSimBatchIterator_Free(batchIterator);
-
-        VecSimIndex_Free(index);
-    }
-}
-
-TYPED_TEST(SVSTest, svs_batch_iterator_non_unique_scores) {
-    size_t dim = 4;
-
-    // Run the test twice - for index of size 100, every iteration will run select-based search,
-    // as the number of results is 5, which is more than 0.1% of the index size. for index of size
-    // 10000, we will run the heap-based search until we return 5000 results, and then switch to
-    // select-based search.
-    for (size_t n : {100, 10000}) {
-        BFParams params = {
-            .dim = dim, .metric = VecSimMetric_L2, .initialCapacity = n, .blockSize = 5};
-        VecSimIndex *index = this->CreateNewIndex(params);
-
-        for (size_t i = 0; i < n; i++) {
-            GenerateAndAddVector<TEST_DATA_T>(index, dim, i, i / 10);
-        }
-        ASSERT_EQ(VecSimIndex_IndexSize(index), n);
-
-        // Query for (n,n,...,n) vector (recall that n is the largest id in te index).
-        TEST_DATA_T query[dim];
-        GenerateVector<TEST_DATA_T>(query, dim, n);
-
-        VecSimBatchIterator *batchIterator = VecSimBatchIterator_New(index, query, nullptr);
-        size_t iteration_num = 0;
-
-        // Get the 5 vectors whose ids are the maximal among those that hasn't been returned yet, in
-        // every iteration. there are n/10 groups of 10 different vectors with the same score.
-        size_t n_res = 5;
-        bool even_iteration = false;
-        std::set<size_t> expected_ids;
-        while (VecSimBatchIterator_HasNext(batchIterator)) {
-            // Insert the maximal 10 ids in every odd iteration.
-            if (!even_iteration) {
-                for (size_t i = 1; i <= 2 * n_res; i++) {
-                    expected_ids.insert(n - iteration_num * n_res - i);
-                }
-            }
-            auto verify_res = [&](size_t id, double score, size_t index) {
-                ASSERT_TRUE(expected_ids.find(id) != expected_ids.end());
-                expected_ids.erase(id);
-            };
-            runBatchIteratorSearchTest(batchIterator, n_res, verify_res);
-            // Make sure that the expected ids set is empty after two iterations.
-            if (even_iteration) {
-                ASSERT_TRUE(expected_ids.empty());
-            }
-            iteration_num++;
-            even_iteration = !even_iteration;
-        }
-        ASSERT_EQ(iteration_num, n / n_res);
-        VecSimBatchIterator_Free(batchIterator);
-
-        VecSimIndex_Free(index);
-    }
-}
-
-TYPED_TEST(SVSTest, svs_batch_iterator_reset) {
-    size_t dim = 4;
-
-    BFParams params = {
-        .dim = dim, .metric = VecSimMetric_L2, .initialCapacity = 100000, .blockSize = 100000};
-
-    VecSimIndex *index = this->CreateNewIndex(params);
-
-    size_t n = 10000;
-    for (size_t i = 0; i < n; i++) {
-        GenerateAndAddVector<TEST_DATA_T>(index, dim, i, i);
-    }
-    ASSERT_EQ(VecSimIndex_IndexSize(index), n);
-
-    // Query for (n,n,...,n) vector (recall that n is the largest id in te index).
-    TEST_DATA_T query[dim];
-    GenerateVector<TEST_DATA_T>(query, dim, n);
-    VecSimBatchIterator *batchIterator = VecSimBatchIterator_New(index, query, nullptr);
-
-    // Get the 100 vectors whose ids are the maximal among those that hasn't been returned yet, in
-    // every iteration. run this flow for 5 times, each time for 10 iteration, and reset the
-    // iterator.
-    size_t n_res = 100;
-    size_t total_iteration = 5;
-    size_t re_runs = 3;
-
-    for (size_t take = 0; take < re_runs; take++) {
-        size_t iteration_num = 0;
-        while (VecSimBatchIterator_HasNext(batchIterator)) {
-            std::set<size_t> expected_ids;
-            for (size_t i = 1; i <= n_res; i++) {
-                expected_ids.insert(n - iteration_num * n_res - i);
-            }
-            auto verify_res = [&](size_t id, double score, size_t index) {
-                ASSERT_TRUE(expected_ids.find(id) != expected_ids.end());
-                expected_ids.erase(id);
-            };
-            runBatchIteratorSearchTest(batchIterator, n_res, verify_res);
-            iteration_num++;
-            if (iteration_num == total_iteration) {
-                break;
-            }
-        }
-        VecSimBatchIterator_Reset(batchIterator);
-    }
-    VecSimBatchIterator_Free(batchIterator);
-    VecSimIndex_Free(index);
-}
-
-TYPED_TEST(SVSTest, svs_batch_iterator_corner_cases) {
-    size_t dim = 4;
-    size_t n = 1000;
-
-    BFParams params = {.dim = dim, .metric = VecSimMetric_L2, .initialCapacity = n};
-
-    VecSimIndex *index = this->CreateNewIndex(params);
-
-    // Query for (n,n,...,n) vector (recall that n is the largest id in te index).
-    TEST_DATA_T query[dim];
-    GenerateVector<TEST_DATA_T>(query, dim, n);
-
-    // Create batch iterator for empty index.
-    VecSimBatchIterator *batchIterator = VecSimBatchIterator_New(index, query, nullptr);
-    // Try to get more results even though there are no.
-    VecSimQueryReply *res = VecSimBatchIterator_Next(batchIterator, 1, BY_SCORE);
-    ASSERT_EQ(VecSimQueryReply_Len(res), 0);
-    VecSimQueryReply_Free(res);
-    // Retry to get results.
-    res = VecSimBatchIterator_Next(batchIterator, 1, BY_SCORE);
-    ASSERT_EQ(VecSimQueryReply_Len(res), 0);
-    VecSimQueryReply_Free(res);
-    VecSimBatchIterator_Free(batchIterator);
-
-    for (size_t i = 0; i < n; i++) {
-        GenerateAndAddVector<TEST_DATA_T>(index, dim, i, i);
-    }
-    ASSERT_EQ(VecSimIndex_IndexSize(index), n);
-
-    batchIterator = VecSimBatchIterator_New(index, query, nullptr);
-
-    // Ask for zero results.
-    res = VecSimBatchIterator_Next(batchIterator, 0, BY_SCORE);
-    ASSERT_EQ(VecSimQueryReply_Len(res), 0);
-    VecSimQueryReply_Free(res);
-
-    // Get all in first iteration, expect to use select search.
-    size_t n_res = n;
-    auto verify_res = [&](size_t id, double score, size_t index) {
-        ASSERT_TRUE(id == n - 1 - index);
-    };
-    runBatchIteratorSearchTest(batchIterator, n_res, verify_res);
-    ASSERT_FALSE(VecSimBatchIterator_HasNext(batchIterator));
-
-    // Try to get more results even though there are no.
-    res = VecSimBatchIterator_Next(batchIterator, n_res, BY_SCORE);
-    ASSERT_EQ(VecSimQueryReply_Len(res), 0);
-    VecSimQueryReply_Free(res);
-
-    // Reset, and run in batches, but the final batch is partial.
-    VecSimBatchIterator_Reset(batchIterator);
-    res = VecSimBatchIterator_Next(batchIterator, n_res / 2, BY_SCORE);
-    ASSERT_EQ(VecSimQueryReply_Len(res), n / 2);
-    VecSimQueryReply_Free(res);
-    res = VecSimBatchIterator_Next(batchIterator, n_res / 2 + 1, BY_SCORE);
-    ASSERT_EQ(VecSimQueryReply_Len(res), n / 2);
-    VecSimQueryReply_Free(res);
-    ASSERT_FALSE(VecSimBatchIterator_HasNext(batchIterator));
-
-    VecSimBatchIterator_Free(batchIterator);
     VecSimIndex_Free(index);
 }
 
