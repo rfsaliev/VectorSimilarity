@@ -4,9 +4,7 @@ set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
 set(CMAKE_CXX_STANDARD 20)
 
-project(VecsimLib
-	LANGUAGES CXX
-)
+project(VecsimLib)
 
 file(GLOB_RECURSE headers ./**.h)
 set(HEADER_LIST "${headers}")
@@ -14,14 +12,13 @@ set(HEADER_LIST "${headers}")
 include_directories(../)
 
 set(SVS_CXX_STANDARD 20)
-SET(CMAKE_CXX_FLAGS  "-O3 -DNDEBUG -std=gnu++20 -march=native -mtune=native" )
-#set(CMAKE_C_COMPILER gcc-11)
-#set(CMAKE_CXX_COMPILER g++-11)
-#
-option(SVS_EXPERIMENTAL_LEANVEC "Enable experimental LeanVec in SVS" YES)
-if(SVS_EXPERIMENTAL_LEANVEC)
-    add_definitions(-DSVS_EXPERIMENTAL_LEANVEC)
-endif()
+set(CMAKE_CXX_FLAGS_DEBUG "-g -std=gnu++20 -march=native -mtune=native")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -std=gnu++20 -march=native -mtune=native")
+
+# option(SVS_EXPERIMENTAL_LEANVEC "Enable experimental LeanVec in SVS" YES)
+# if(SVS_EXPERIMENTAL_LEANVEC)
+#     add_definitions(-DSVS_EXPERIMENTAL_LEANVEC)
+# endif()
 
 include(FetchContent)
 FetchContent_Declare(
