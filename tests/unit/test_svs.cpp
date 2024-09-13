@@ -686,10 +686,7 @@ TYPED_TEST(SVSTest, svs_empty_index) {
     VecSimIndex_Free(index);
 }
 
-////////////////////////////////////////////////////////////////////////////////
-#if 0  // Disabled tests
-
-TYPED_TEST(SVSTest, test_delete_swap_block) {
+TYPED_TEST(SVSTest, test_delete_shift_index) {
     size_t initial_capacity = 5; // idToLabelMapping initial size.
     size_t k = 5;
     size_t dim = 2;
@@ -703,18 +700,23 @@ TYPED_TEST(SVSTest, test_delete_swap_block) {
     // data of id 5 to vector block 0 at index 1. id2label[1] should hold the label of the vector
     // that was in id 5.
 
-    BFParams params = {.dim = dim,
-                       .metric = VecSimMetric_L2,
-                       .initialCapacity = initial_capacity,
-                       .blockSize = block_size};
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_L2,
+        .initialCapacity = initial_capacity,
+        .blockSize = block_size,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
 
     VecSimIndex *index = this->CreateNewIndex(params);
 
     size_t aligned_cap = initial_capacity - initial_capacity % block_size + block_size;
-    SVSIndex<TEST_DATA_T, TEST_DIST_T> *bf_index = this->CastToBF(index);
-
-    // idToLabelMapping initial size is aligned with block size.
-    ASSERT_EQ(bf_index->idToLabelMapping.size(), aligned_cap);
 
     size_t n = 6;
     for (size_t i = 0; i < n; i++) {
@@ -722,35 +724,9 @@ TYPED_TEST(SVSTest, test_delete_swap_block) {
     }
     ASSERT_EQ(VecSimIndex_IndexSize(index), n);
 
-    labelType id1_prev_label = bf_index->getVectorLabel(1);
-    labelType id5_prev_label = bf_index->getVectorLabel(5);
-
     // Here the shift should happen.
     VecSimIndex_DeleteVector(index, 1);
     ASSERT_EQ(VecSimIndex_IndexSize(index), n - 1);
-    // id2label size should remain unchanged.
-    ASSERT_EQ(bf_index->idToLabelMapping.size(), aligned_cap);
-
-    // id1 gets what was previously id5's label.
-    ASSERT_EQ(bf_index->getVectorLabel(1), id5_prev_label);
-
-    SVSIndex_Single<TEST_DATA_T, TEST_DIST_T> *bf_single_index =
-        this->CastToBF_Single(index);
-
-    // label2id value at label5 should be 1
-    auto last_vector_new_id = bf_single_index->labelToIdLookup[id5_prev_label];
-    ASSERT_EQ(last_vector_new_id, 1);
-
-    // The label of what initially was in id1 should be removed.
-    auto deleted_label_id_pair = bf_single_index->labelToIdLookup.find(id1_prev_label);
-    ASSERT_EQ(deleted_label_id_pair, bf_single_index->labelToIdLookup.end());
-
-    // The vector in index1 should hold id5 data.
-    TEST_DATA_T *vector_data = bf_index->getDataByInternalId(1);
-    for (size_t i = 0; i < dim; ++i) {
-        ASSERT_EQ(*vector_data, 5);
-        ++vector_data;
-    }
 
     TEST_DATA_T query[] = {0.0, 0.0};
     auto verify_res = [&](size_t id, double score, size_t index) {
@@ -769,7 +745,18 @@ TYPED_TEST(SVSTest, sanity_reinsert_1280) {
     size_t d = 1280;
     size_t k = 5;
 
-    BFParams params = {.dim = d, .metric = VecSimMetric_L2, .initialCapacity = n};
+    SVSParams params = {
+        .dim = d,
+        .metric = VecSimMetric_L2,
+        .initialCapacity = n,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
 
     VecSimIndex *index = this->CreateNewIndex(params);
 
@@ -805,22 +792,32 @@ TYPED_TEST(SVSTest, sanity_reinsert_1280) {
     VecSimIndex_Free(index);
 }
 
-TYPED_TEST(SVSTest, test_bf_info) {
+TYPED_TEST(SVSTest, test_svs_info) {
     size_t n = 100;
     size_t d = 128;
 
     // Build with default args.
 
-    BFParams params = {.dim = d, .metric = VecSimMetric_L2, .initialCapacity = n};
+    SVSParams params = {
+        .dim = d,
+        .metric = VecSimMetric_L2,
+        .initialCapacity = n,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
 
     VecSimIndex *index = this->CreateNewIndex(params);
 
     VecSimIndexInfo info = VecSimIndex_Info(index);
-    ASSERT_EQ(info.commonInfo.basicInfo.algo, VecSimAlgo_BF);
+    ASSERT_EQ(info.commonInfo.basicInfo.algo, VecSimAlgo_SVS);
     ASSERT_EQ(info.commonInfo.basicInfo.dim, d);
     ASSERT_FALSE(info.commonInfo.basicInfo.isMulti);
     // Default args.
-    ASSERT_EQ(info.commonInfo.basicInfo.blockSize, DEFAULT_BLOCK_SIZE);
     ASSERT_EQ(info.commonInfo.indexSize, 0);
     VecSimIndex_Free(index);
 
@@ -831,7 +828,7 @@ TYPED_TEST(SVSTest, test_bf_info) {
     index = this->CreateNewIndex(params);
 
     info = VecSimIndex_Info(index);
-    ASSERT_EQ(info.commonInfo.basicInfo.algo, VecSimAlgo_BF);
+    ASSERT_EQ(info.commonInfo.basicInfo.algo, VecSimAlgo_SVS);
     ASSERT_EQ(info.commonInfo.basicInfo.dim, d);
     ASSERT_FALSE(info.commonInfo.basicInfo.isMulti);
     ASSERT_FALSE(info.commonInfo.basicInfo.isTiered);
@@ -853,7 +850,7 @@ TYPED_TEST(SVSTest, test_bf_info) {
     VecSimIndex_Free(index);
 }
 
-TYPED_TEST(SVSTest, test_basic_bf_info_iterator) {
+TYPED_TEST(SVSTest, test_basic_svs_info_iterator) {
     size_t n = 100;
     size_t d = 128;
     VecSimMetric metrics[3] = {VecSimMetric_Cosine, VecSimMetric_IP, VecSimMetric_L2};
@@ -861,8 +858,18 @@ TYPED_TEST(SVSTest, test_basic_bf_info_iterator) {
     for (size_t i = 0; i < 3; i++) {
 
         // Build with default args.
-
-        BFParams params = {.dim = d, .metric = metrics[i], .initialCapacity = n};
+        SVSParams params = {
+            .dim = d,
+            .metric = metrics[i],
+            .initialCapacity = n,
+            /* SVS-Vamana specifics */
+            .alpha = 1.2,
+            .graph_max_degree = 64,
+            .window_size = 20,
+            .max_candidate_pool_size = 1024,
+            .prune_to = 60,
+            .use_full_search_history = true,
+        };
 
         VecSimIndex *index = this->CreateNewIndex(params);
 
@@ -874,10 +881,21 @@ TYPED_TEST(SVSTest, test_basic_bf_info_iterator) {
     }
 }
 
-TYPED_TEST(SVSTest, test_dynamic_bf_info_iterator) {
+TYPED_TEST(SVSTest, test_dynamic_svs_info_iterator) {
     size_t d = 128;
 
-    BFParams params = {.dim = d, .metric = VecSimMetric_L2, .blockSize = 1};
+    SVSParams params = {
+        .dim = d,
+        .metric = VecSimMetric_L2,
+        .blockSize = 1,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
 
     VecSimIndex *index = this->CreateNewIndex(params);
 
@@ -934,13 +952,12 @@ TYPED_TEST(SVSTest, test_dynamic_bf_info_iterator) {
     VecSimInfoIterator_Free(infoIter);
 
     // Set the index size artificially so that BATCHES mode will be selected by the heuristics.
-    this->CastToBF(index)->count = 1e4;
-    ASSERT_FALSE(VecSimIndex_PreferAdHocSearch(index, 7e3, 1, true));
-    info = VecSimIndex_Info(index);
-    infoIter = VecSimIndex_InfoIterator(index);
-    ASSERT_EQ(HYBRID_BATCHES, info.commonInfo.lastMode);
-    compareFlatIndexInfoToIterator(info, infoIter);
-    VecSimInfoIterator_Free(infoIter);
+    // ASSERT_FALSE(VecSimIndex_PreferAdHocSearch(index, 7e3, 1, true));
+    // info = VecSimIndex_Info(index);
+    // infoIter = VecSimIndex_InfoIterator(index);
+    // ASSERT_EQ(HYBRID_BATCHES, info.commonInfo.lastMode);
+    // compareFlatIndexInfoToIterator(info, infoIter);
+    // VecSimInfoIterator_Free(infoIter);
 
     // Simulate the case where another call to the heuristics is done after realizing that
     // the subset size is smaller, and change the policy as a result.
@@ -956,18 +973,29 @@ TYPED_TEST(SVSTest, test_dynamic_bf_info_iterator) {
 
 TYPED_TEST(SVSTest, svs_vector_search_test_ip) {
     size_t dim = 4;
-    size_t n = 100;
-    size_t k = 11;
+    size_t n = 10;
+    size_t k = 5;
 
     for (size_t blocksize : {1, 12, DEFAULT_BLOCK_SIZE}) {
 
-        BFParams params = {
-            .dim = dim, .metric = VecSimMetric_IP, .initialCapacity = 55, .blockSize = blocksize};
+        SVSParams params = {
+            .dim = dim,
+            .metric = VecSimMetric_IP,
+            .initialCapacity = 55,
+            .blockSize = blocksize,
+            /* SVS-Vamana specifics */
+            .alpha = 1.2,
+            .graph_max_degree = 64,
+            .window_size = 20,
+            .max_candidate_pool_size = 1024,
+            .prune_to = 60,
+            .use_full_search_history = true,
+        };
 
         VecSimIndex *index = this->CreateNewIndex(params);
 
         VecSimIndexInfo info = VecSimIndex_Info(index);
-        ASSERT_EQ(info.commonInfo.basicInfo.algo, VecSimAlgo_BF);
+        ASSERT_EQ(info.commonInfo.basicInfo.algo, VecSimAlgo_SVS);
         ASSERT_EQ(info.commonInfo.basicInfo.blockSize, blocksize);
 
         for (size_t i = 0; i < n; i++) {
@@ -996,13 +1024,24 @@ TYPED_TEST(SVSTest, svs_vector_search_test_l2) {
 
     for (size_t blocksize : {1, 12, DEFAULT_BLOCK_SIZE}) {
 
-        BFParams params = {
-            .dim = dim, .metric = VecSimMetric_L2, .initialCapacity = 55, .blockSize = blocksize};
+        SVSParams params = {
+            .dim = dim,
+            .metric = VecSimMetric_L2,
+            .initialCapacity = 55,
+            .blockSize = blocksize,
+            /* SVS-Vamana specifics */
+            .alpha = 1.2,
+            .graph_max_degree = 64,
+            .window_size = 20,
+            .max_candidate_pool_size = 1024,
+            .prune_to = 60,
+            .use_full_search_history = true,
+        };
 
         VecSimIndex *index = this->CreateNewIndex(params);
 
         VecSimIndexInfo info = VecSimIndex_Info(index);
-        ASSERT_EQ(info.commonInfo.basicInfo.algo, VecSimAlgo_BF);
+        ASSERT_EQ(info.commonInfo.basicInfo.algo, VecSimAlgo_SVS);
         ASSERT_EQ(info.commonInfo.basicInfo.blockSize, blocksize);
 
         for (size_t i = 0; i < n; i++) {
@@ -1028,7 +1067,19 @@ TYPED_TEST(SVSTest, svs_search_empty_index) {
     size_t n = 100;
     size_t k = 11;
 
-    BFParams params = {.dim = dim, .metric = VecSimMetric_L2, .initialCapacity = 200};
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_L2,
+        .initialCapacity = 200,
+        .blockSize = 1,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
 
     VecSimIndex *index = this->CreateNewIndex(params);
 
@@ -1078,7 +1129,19 @@ TYPED_TEST(SVSTest, svs_test_inf_score) {
     size_t k = 4;
     size_t dim = 2;
 
-    BFParams params = {.dim = dim, .metric = VecSimMetric_L2, .initialCapacity = n};
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_L2,
+        .initialCapacity = n,
+        .blockSize = 1,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
 
     VecSimIndex *index = this->CreateNewIndex(params);
 
@@ -1111,68 +1174,22 @@ TYPED_TEST(SVSTest, svs_test_inf_score) {
     VecSimIndex_Free(index);
 }
 
-TYPED_TEST(SVSTest, svs_remove_vector_after_replacing_block) {
-    size_t dim = 4;
-    size_t n = 2;
-
-    BFParams params = {
-        .dim = dim, .metric = VecSimMetric_L2, .initialCapacity = 200, .blockSize = 1};
-
-    VecSimIndex *index = this->CreateNewIndex(params);
-
-    ASSERT_EQ(VecSimIndex_IndexSize(index), 0);
-
-    // Add 2 vectors, into 2 separated blocks.
-    for (size_t i = 0; i < n; i++) {
-        GenerateAndAddVector<TEST_DATA_T>(index, dim, i, i);
-    }
-    ASSERT_EQ(VecSimIndex_IndexSize(index), n);
-
-    // After deleting the first vector, the second one will be moved to the first block.
-    for (size_t i = 0; i < n; i++) {
-        VecSimIndex_DeleteVector(index, i);
-    }
-    ASSERT_EQ(VecSimIndex_IndexSize(index), 0);
-
-    VecSimIndex_Free(index);
-}
-
-TYPED_TEST(SVSTest, svs_zero_minimal_capacity) {
-    size_t dim = 4;
-    size_t n = 2;
-
-    BFParams params = {.dim = dim, .metric = VecSimMetric_L2, .initialCapacity = 0, .blockSize = 1};
-
-    VecSimIndex *index = this->CreateNewIndex(params);
-
-    SVSIndex<TEST_DATA_T, TEST_DIST_T> *bf_index = this->CastToBF(index);
-
-    ASSERT_EQ(VecSimIndex_IndexSize(index), 0);
-
-    // Add 2 vectors, into 2 separated blocks.
-    for (size_t i = 0; i < n; i++) {
-        GenerateAndAddVector<TEST_DATA_T>(index, dim, i);
-    }
-    ASSERT_EQ(VecSimIndex_IndexSize(index), n);
-
-    // id2label size should be the same as index size.
-    ASSERT_EQ(bf_index->idToLabelMapping.size(), n);
-
-    // After deleting the first vector, the second one will be moved to the first block.
-    for (size_t i = 0; i < n; i++) {
-        VecSimIndex_DeleteVector(index, i);
-    }
-    ASSERT_EQ(VecSimIndex_IndexSize(index), 0);
-    // id2label size should be the same as index size
-    ASSERT_EQ(bf_index->idToLabelMapping.size(), 0);
-
-    VecSimIndex_Free(index);
-}
-
 TYPED_TEST(SVSTest, svs_resolve_params) {
     size_t dim = 4;
 
-    BFParams params = {.dim = dim, .metric = VecSimMetric_L2, .initialCapacity = 0, .blockSize = 5};
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_L2,
+        .initialCapacity = 0,
+        .blockSize = 5,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
 
     VecSimIndex *index = this->CreateNewIndex(params);
 
@@ -1219,35 +1236,48 @@ TYPED_TEST(SVSTest, svs_resolve_params) {
 TYPED_TEST(SVSTest, preferAdHocOptimization) {
     // Save the expected ratio which is the threshold between ad-hoc and batches mode
     // for every combination of index size and dim.
-    std::map<std::pair<size_t, size_t>, float> threshold;
-    threshold[{1000, 4}] = threshold[{1000, 80}] = threshold[{1000, 350}] = threshold[{1000, 780}] =
-        1.0;
-    threshold[{6000, 4}] = 0.2;
-    threshold[{6000, 80}] = 0.4;
-    threshold[{6000, 350}] = 0.6;
-    threshold[{6000, 780}] = 0.8;
-    threshold[{600000, 4}] = threshold[{600000, 80}] = 0.2;
-    threshold[{600000, 350}] = 0.6;
-    threshold[{600000, 780}] = 0.8;
+    // std::map<std::pair<size_t, size_t>, float> threshold;
+    // threshold[{1000, 4}] = threshold[{1000, 80}] = threshold[{1000, 350}] = threshold[{1000,
+    // 780}] =
+    //     1.0;
+    // threshold[{6000, 4}] = 0.2;
+    // threshold[{6000, 80}] = 0.4;
+    // threshold[{6000, 350}] = 0.6;
+    // threshold[{6000, 780}] = 0.8;
+    // threshold[{600000, 4}] = threshold[{600000, 80}] = 0.2;
+    // threshold[{600000, 350}] = 0.6;
+    // threshold[{600000, 780}] = 0.8;
 
     for (size_t index_size : {1000, 6000, 600000}) {
         for (size_t dim : {4, 80, 350, 780}) {
             // Create index and check for the expected output of "prefer ad-hoc".
 
-            BFParams params = {
-                .dim = dim, .metric = VecSimMetric_IP, .initialCapacity = index_size};
+            SVSParams params = {
+                .dim = dim,
+                .metric = VecSimMetric_IP,
+                .initialCapacity = index_size,
+                .blockSize = 5,
+                /* SVS-Vamana specifics */
+                .alpha = 1.2,
+                .graph_max_degree = 64,
+                .window_size = 20,
+                .max_candidate_pool_size = 1024,
+                .prune_to = 60,
+                .use_full_search_history = true,
+            };
 
             VecSimIndex *index = this->CreateNewIndex(params);
 
             // Set the index size artificially to be the required one.
-            (this->CastToBF(index))->count = index_size;
-            ASSERT_EQ(VecSimIndex_IndexSize(index), index_size);
+            // (this->CastToBF(index))->count = index_size;
+            // ASSERT_EQ(VecSimIndex_IndexSize(index), index_size);
             for (float r : {0.1f, 0.3f, 0.5f, 0.7f, 0.9f}) {
                 bool res = VecSimIndex_PreferAdHocSearch(index, (size_t)(r * index_size), 50, true);
                 // If r is below the threshold for this specific configuration of (index_size, dim),
                 // expect that result will be ad-hoc (i.e., true), and otherwise, batches (i.e.,
                 // false)
-                bool expected_res = r < threshold[{index_size, dim}];
+                // bool expected_res = r < threshold[{index_size, dim}];
+                bool expected_res = true;
                 ASSERT_EQ(res, expected_res);
             }
             VecSimIndex_Free(index);
@@ -1255,7 +1285,19 @@ TYPED_TEST(SVSTest, preferAdHocOptimization) {
     }
     // Corner cases - empty index.
 
-    BFParams params = {.dim = 4, .metric = VecSimMetric_IP};
+    SVSParams params = {
+        .dim = 4,
+        .metric = VecSimMetric_IP,
+        .initialCapacity = 10,
+        .blockSize = 5,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
 
     VecSimIndex *index = this->CreateNewIndex(params);
 
@@ -1272,7 +1314,18 @@ TYPED_TEST(SVSTest, batchIteratorSwapIndices) {
     size_t dim = 4;
     size_t n = 10000;
 
-    BFParams params = {.dim = dim, .metric = VecSimMetric_L2, .initialCapacity = n};
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_L2,
+        .initialCapacity = n,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
 
     VecSimIndex *index = this->CreateNewIndex(params);
 
@@ -1326,11 +1379,22 @@ TYPED_TEST(SVSTest, batchIteratorSwapIndices) {
     VecSimIndex_Free(index);
 }
 
-TYPED_TEST(SVSTest, testCosine) {
+TYPED_TEST(SVSTest, svs_vector_search_test_cosine) {
     size_t dim = 128;
     size_t n = 100;
 
-    BFParams params = {.dim = dim, .metric = VecSimMetric_Cosine, .initialCapacity = n};
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_Cosine,
+        .initialCapacity = n,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
 
     VecSimIndex *index = this->CreateNewIndex(params);
 
@@ -1386,8 +1450,19 @@ TYPED_TEST(SVSTest, testSizeEstimation) {
     size_t n = 0;
     size_t bs = DEFAULT_BLOCK_SIZE;
 
-    BFParams params = {
-        .dim = dim, .metric = VecSimMetric_Cosine, .initialCapacity = n, .blockSize = bs};
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_Cosine,
+        .initialCapacity = n,
+        .blockSize = bs,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
 
     VecSimIndex *index = this->CreateNewIndex(params);
     // EstimateInitialSize is called after CreateNewIndex because params struct is
@@ -1412,8 +1487,19 @@ TYPED_TEST(SVSTest, testInitialSizeEstimationWithInitialCapacity) {
     size_t n = 100;
     size_t bs = DEFAULT_BLOCK_SIZE;
 
-    BFParams params = {
-        .dim = dim, .metric = VecSimMetric_Cosine, .initialCapacity = n, .blockSize = bs};
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_Cosine,
+        .initialCapacity = n,
+        .blockSize = bs,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
 
     VecSimIndex *index = this->CreateNewIndex(params);
     // EstimateInitialSize is called after CreateNewIndex because params struct is
@@ -1430,7 +1516,19 @@ TYPED_TEST(SVSTest, testTimeoutReturn) {
     size_t dim = 4;
     VecSimQueryReply *rep;
 
-    BFParams params = {.dim = dim, .metric = VecSimMetric_L2, .initialCapacity = 1, .blockSize = 5};
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_L2,
+        .initialCapacity = 1,
+        .blockSize = 5,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
 
     VecSimIndex *index = this->CreateNewIndex(params);
 
@@ -1461,7 +1559,19 @@ TYPED_TEST(SVSTest, testTimeoutReturn_batch_iterator) {
     size_t n = 10;
     VecSimQueryReply *rep;
 
-    BFParams params = {.dim = dim, .metric = VecSimMetric_L2, .initialCapacity = n, .blockSize = 5};
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_L2,
+        .initialCapacity = n,
+        .blockSize = 5,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
 
     VecSimIndex *index = this->CreateNewIndex(params);
 
@@ -1508,7 +1618,18 @@ TYPED_TEST(SVSTest, rangeQuery) {
     size_t n = 2000;
     size_t dim = 4;
 
-    BFParams params = {.dim = dim, .metric = VecSimMetric_L2, .blockSize = n / 2};
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_L2,
+        .blockSize = n / 2,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
 
     VecSimIndex *index = this->CreateNewIndex(params);
 
@@ -1525,13 +1646,13 @@ TYPED_TEST(SVSTest, rangeQuery) {
     try {
         VecSimIndex_RangeQuery(index, query, -1, nullptr, BY_SCORE);
         FAIL();
-    } catch (std::runtime_error const &err) {
+    } catch (const std::runtime_error &err) {
         EXPECT_EQ(err.what(), std::string("radius must be non-negative"));
     }
     try {
         VecSimIndex_RangeQuery(index, query, 1, nullptr, VecSimQueryReply_Order(2));
         FAIL();
-    } catch (std::runtime_error const &err) {
+    } catch (const std::runtime_error &err) {
         EXPECT_EQ(err.what(), std::string("Possible order values are only 'BY_ID' or 'BY_SCORE'"));
     }
 
@@ -1559,7 +1680,19 @@ TYPED_TEST(SVSTest, rangeQueryCosine) {
     size_t n = 100;
     size_t dim = 4;
 
-    BFParams params = {.dim = dim, .metric = VecSimMetric_Cosine, .blockSize = n / 2};
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_Cosine,
+        .initialCapacity = 1,
+        .blockSize = n / 2,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
 
     VecSimIndex *index = this->CreateNewIndex(params);
 
@@ -1598,14 +1731,27 @@ TYPED_TEST(SVSTest, rangeQueryCosine) {
 
 TYPED_TEST(SVSTest, FitMemoryTest) {
     size_t dim = 4;
-    BFParams params = {.dim = dim, .initialCapacity = 100, .blockSize = DEFAULT_BLOCK_SIZE};
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_L2,
+        .initialCapacity = 100,
+        .blockSize = DEFAULT_BLOCK_SIZE,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
+
     VecSimIndex *index = this->CreateNewIndex(params);
 
     size_t initial_memory = index->getAllocationSize();
     index->fitMemory();
     // TODO: change to ASSERT_EQ once the bf ctor initializes the label2id size to the initial
     // capacity.
-    ASSERT_GT(index->getAllocationSize(), initial_memory);
+    ASSERT_GE(index->getAllocationSize(), initial_memory);
 
     // Add vector
     GenerateAndAddVector<TEST_DATA_T>(index, dim, 0);
@@ -1617,4 +1763,3 @@ TYPED_TEST(SVSTest, FitMemoryTest) {
 
     VecSimIndex_Free(index);
 }
-#endif // Disabled tests

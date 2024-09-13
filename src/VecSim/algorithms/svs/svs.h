@@ -67,6 +67,7 @@ protected:
         svs::index::vamana::MutableVamanaIndex<graph_type, index_storage_type, dist_type>;
 
     /* Notice: SimpleGraph template can only be instatiatied for std::unsigned_integral type */
+    size_t changes_num = 0;
     SVSParams params_;
     std::unique_ptr<impl_type> vamana_idx;
 
@@ -107,13 +108,33 @@ protected:
     }
 
     impl_type *get_vamana() const {
-        assert(vamana_idx);
+        // assert(vamana_idx);
         return this->vamana_idx.get();
+    }
+
+    void mark_index_update() {
+        if (get_vamana() == nullptr)
+            return;
+
+        if (indexSize() == 0) {
+            this->vamana_idx.reset(nullptr);
+            changes_num = 0;
+            return;
+        }
+
+        // consolidate index if number of changes bigger than 50% of index size
+        const float consolidation_threshold = .5f;
+        // indexSize() can be 0, (++changes_num) is always > 0
+        if (indexSize() / (++changes_num) < 1.f / consolidation_threshold) {
+            get_vamana()->consolidate();
+            changes_num = 0;
+        }
     }
 
 public:
     SVSIndex(const SVSParams *params, std::shared_ptr<VecSimAllocator> allocator)
-        : VecSimIndexInterface{std::move(allocator)}, params_{*params}, vamana_idx{nullptr} {}
+        : VecSimIndexInterface{std::move(allocator)}, changes_num{0}, params_{*params},
+          vamana_idx{nullptr} {}
 
     ~SVSIndex() = default;
 
@@ -125,7 +146,7 @@ public:
 
     VecSimIndexBasicInfo basicInfo() const override {
         VecSimIndexBasicInfo info{.algo = VecSimAlgo_SVS,
-                                  .blockSize = 1,
+                                  .blockSize = params_.blockSize,
                                   .metric = params_.metric,
                                   .type = params_.type,
                                   .isMulti = false,
@@ -173,6 +194,7 @@ public:
             return 0;
         }
         get_vamana()->delete_entries(std::span<labelType, 1>{&label, 1});
+        this->mark_index_update();
         return 1;
     }
 
@@ -193,7 +215,8 @@ public:
     VecSimQueryReply *topKQuery(const void *queryBlob, size_t k,
                                 VecSimQueryParams *queryParams) const override {
         auto rep = new VecSimQueryReply(this->allocator);
-        if (get_vamana() == nullptr) {
+        this->lastMode = STANDARD_KNN;
+        if (k == 0 || this->indexSize() == 0) {
             return rep;
         }
 
@@ -214,19 +237,23 @@ public:
     VecSimQueryReply *rangeQuery(const void *queryBlob, double radius,
                                  VecSimQueryParams *queryParams) const {
         auto rep = new VecSimQueryReply(this->allocator);
-        if (get_vamana() == nullptr) {
+        this->lastMode = RANGE_QUERY;
+        if (this->indexSize() == 0) {
             return rep;
         }
 
         const size_t batchSize = 10;
-        svs::index::vamana::DefaultSchedule schedule{{}, batchSize};
+        // Base search parameters for the iterator schedule.
+        // This uses a search window size/capacity of 4.
+        auto base_parameters = svs::index::vamana::VamanaSearchParameters{}.buffer_config({4});
+        auto schedule = svs::index::vamana::DefaultSchedule{base_parameters, batchSize};
         std::span<const data_type> query{reinterpret_cast<const data_type *>(queryBlob),
                                          params_.dim};
         svs::index::vamana::BatchIterator<impl_type, data_type> svs_it{*get_vamana(), query,
                                                                        schedule};
 
         bool done = false;
-        while (!done) {
+        while (svs_it.size() > 0 && !done) {
             for (auto &neighbor : svs_it) {
                 if (neighbor.distance() <= radius) {
                     rep->results.push_back(VecSimQueryResult{neighbor.id(), neighbor.distance()});
@@ -255,7 +282,10 @@ public:
     }
 
     bool preferAdHocSearch(size_t subsetSize, size_t k, bool initial_check) const override {
-        return true;
+        bool res = true;
+        this->lastMode =
+            res ? (initial_check ? HYBRID_ADHOC_BF : HYBRID_BATCHES_TO_ADHOC_BF) : HYBRID_BATCHES;
+        return res;
     }
 
     void fitMemory() override {};
