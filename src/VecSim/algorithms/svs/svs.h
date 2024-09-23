@@ -27,30 +27,9 @@
 #include <vector>
 
 #include "svs/index/vamana/dynamic_index.h"
+
+#include "VecSim/algorithms/svs/svs_utils.h"
 #include "VecSim/algorithms/svs/svs_batch_iterator.h"
-
-namespace details {
-// Adjust SVS distance computation to VecSim
-template <typename Ea, typename Eb, size_t Da, size_t Db>
-float computeVecSimDistance(svs::distance::DistanceL2 dist, std::span<Ea, Da> a,
-                            std::span<Eb, Db> b) {
-    return svs::distance::compute(dist, a, b);
-}
-
-template <typename Ea, typename Eb, size_t Da, size_t Db>
-float computeVecSimDistance(svs::distance::DistanceIP dist, std::span<Ea, Da> a,
-                            std::span<Eb, Db> b) {
-    return 1.0f - svs::distance::compute(dist, a, b);
-}
-
-template <typename Ea, typename Eb, size_t Da, size_t Db>
-float computeVecSimDistance(svs::distance::DistanceCosineSimilarity /*dist*/, std::span<Ea, Da> a,
-                            std::span<Eb, Db> b) {
-    // VecSim uses IP for Cosine distance
-    return computeVecSimDistance(svs::distance::DistanceIP{}, a, b);
-}
-
-} // namespace details
 
 // TODO(rfsaliev)
 //  * remove VecSimIndexAbstract from inheritance chain
@@ -129,6 +108,14 @@ protected:
             get_vamana()->consolidate();
             changes_num = 0;
         }
+    }
+
+    static float toVecSimDistance(float v) { return details::toVecSimDistance<dist_type>(v); }
+
+    template <typename Idx>
+    static VecSimQueryResult makeVecSimQueryResult(const svs::QueryResult<Idx> &result,
+                                                   size_t query, size_t neighbor) {
+        return details::makeVecSimQueryResult<dist_type, Idx>(result, query, neighbor);
     }
 
 public:
@@ -229,7 +216,7 @@ public:
         assert(result.n_queries() == 1);
 
         for (size_t i = 0; i < result.n_neighbors(); i++) {
-            rep->results.push_back(VecSimQueryResult{result.index(0, i), result.distance(0, i)});
+            rep->results.push_back(makeVecSimQueryResult(result, 0, i));
         }
         return rep;
     }
@@ -238,14 +225,17 @@ public:
                                  VecSimQueryParams *queryParams) const {
         auto rep = new VecSimQueryReply(this->allocator);
         this->lastMode = RANGE_QUERY;
-        if (this->indexSize() == 0) {
+        if (radius == 0 || this->indexSize() == 0) {
             return rep;
         }
 
-        const size_t batchSize = 10;
+        const size_t batchSize =
+            queryParams && queryParams->batchSize ? queryParams->batchSize : 10;
         // Base search parameters for the iterator schedule.
         // This uses a search window size/capacity of 4.
-        auto base_parameters = svs::index::vamana::VamanaSearchParameters{}.buffer_config({4});
+        auto base_parameters = svs::index::vamana::VamanaSearchParameters{}
+                                   .buffer_config({params_.window_size})
+                                   .search_buffer_visited_set(true);
         auto schedule = svs::index::vamana::DefaultSchedule{base_parameters, batchSize};
         std::span<const data_type> query{reinterpret_cast<const data_type *>(queryBlob),
                                          params_.dim};
@@ -255,8 +245,9 @@ public:
         bool done = false;
         while (svs_it.size() > 0 && !done) {
             for (auto &neighbor : svs_it) {
-                if (neighbor.distance() <= radius) {
-                    rep->results.push_back(VecSimQueryResult{neighbor.id(), neighbor.distance()});
+                if (toVecSimDistance(neighbor.distance()) <= radius) {
+                    rep->results.push_back(
+                        VecSimQueryResult{neighbor.id(), toVecSimDistance(neighbor.distance())});
                     done = false;
                 } else {
                     done = true;

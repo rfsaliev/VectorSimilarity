@@ -20,12 +20,15 @@
 
 #include "svs/index/vamana/iterator.h"
 
+#include "VecSim/algorithms/svs/svs_utils.h"
+
 template <typename Index, typename DataType>
 class SVS_BatchIterator : public VecSimBatchIterator {
 private:
     size_t dim;
 
     using impl_type = svs::index::vamana::BatchIterator<Index, DataType>;
+    using dist_type = typename Index::distance_type;
     std::unique_ptr<impl_type> impl_;
     decltype(impl_->begin()) curr_it;
 
@@ -54,7 +57,8 @@ private:
                     return rep;
                 }
             }
-            rep->results.push_back(VecSimQueryResult{curr_it->id(), curr_it->distance()});
+            rep->results.push_back(VecSimQueryResult{
+                curr_it->id(), details::toVecSimDistance<dist_type>(curr_it->distance())});
             curr_it++;
         }
         return rep;

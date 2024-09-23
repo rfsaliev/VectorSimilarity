@@ -984,7 +984,7 @@ TYPED_TEST(SVSTest, svs_vector_search_test_ip) {
             .initialCapacity = 55,
             .blockSize = blocksize,
             /* SVS-Vamana specifics */
-            .alpha = 1.2,
+            .alpha = 0.9,
             .graph_max_degree = 64,
             .window_size = 20,
             .max_candidate_pool_size = 1024,
@@ -1388,7 +1388,7 @@ TYPED_TEST(SVSTest, svs_vector_search_test_cosine) {
         .metric = VecSimMetric_Cosine,
         .initialCapacity = n,
         /* SVS-Vamana specifics */
-        .alpha = 1.2,
+        .alpha = 0.9,
         .graph_max_degree = 64,
         .window_size = 20,
         .max_candidate_pool_size = 1024,
@@ -1419,7 +1419,8 @@ TYPED_TEST(SVSTest, svs_vector_search_test_cosine) {
     auto verify_res = [&](size_t id, double score, size_t result_rank) {
         ASSERT_EQ(id, (n - result_rank));
         TEST_DATA_T expected_score = index->getDistanceFrom_Unsafe(id, normalized_query);
-        ASSERT_TYPE_EQ(TEST_DATA_T(score), expected_score);
+        // Verify that abs difference between the actual and expected score is at most 1/10^5.
+        ASSERT_NEAR((TEST_DATA_T)score, expected_score, 1e-5f);
     };
     runTopKSearchTest(index, query, 10, verify_res);
 
@@ -1435,7 +1436,8 @@ TYPED_TEST(SVSTest, svs_vector_search_test_cosine) {
         auto verify_res_batch = [&](size_t id, double score, size_t result_rank) {
             ASSERT_EQ(id, (n - n_res * iteration_num - result_rank));
             TEST_DATA_T expected_score = index->getDistanceFrom_Unsafe(id, normalized_query);
-            ASSERT_TYPE_EQ(TEST_DATA_T(score), expected_score);
+            // Verify that abs difference between the actual and expected score is at most 1/10^5.
+            ASSERT_NEAR((TEST_DATA_T)score, expected_score, 1e-5f);
         };
         runBatchIteratorSearchTest(batchIterator, n_res, verify_res_batch);
         iteration_num++;
@@ -1686,7 +1688,7 @@ TYPED_TEST(SVSTest, rangeQueryCosine) {
         .initialCapacity = 1,
         .blockSize = n / 2,
         /* SVS-Vamana specifics */
-        .alpha = 1.2,
+        .alpha = 0.9,
         .graph_max_degree = 64,
         .window_size = 20,
         .max_candidate_pool_size = 1024,
@@ -1712,9 +1714,9 @@ TYPED_TEST(SVSTest, rangeQueryCosine) {
     }
     auto verify_res = [&](size_t id, double score, size_t result_rank) {
         ASSERT_EQ(id, result_rank + 1);
-        double expected_score = index->getDistanceFrom_Unsafe(id, query);
+        TEST_DATA_T expected_score = index->getDistanceFrom_Unsafe(id, query);
         // Verify that abs difference between the actual and expected score is at most 1/10^5.
-        ASSERT_EQ(score, expected_score);
+        ASSERT_NEAR((TEST_DATA_T)score, expected_score, 1e-5f);
     };
 
     uint expected_num_results = 31;
