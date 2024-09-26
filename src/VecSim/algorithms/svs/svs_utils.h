@@ -58,4 +58,38 @@ float computeVecSimDistance(svs::distance::DistanceCosineSimilarity /*dist*/, st
     return computeVecSimDistance(svs::distance::DistanceIP{}, a, b);
 }
 
+template <typename T>
+struct SVSAllocator {
+private:
+    std::shared_ptr<VecSimAllocator> allocator_;
+
+public:
+    // Type Aliases
+    using value_type = T;
+    using size_type = std::size_t;
+    using difference_type = std::ptrdiff_t;
+    using propagate_on_container_move_assignment = std::true_type;
+
+    // Constructor
+    SVSAllocator(std::shared_ptr<VecSimAllocator> vs_allocator)
+        : allocator_{std::move(vs_allocator)} {}
+
+    // Construct from another value type allocator.
+
+    // Allocation and Deallocation.
+    [[nodiscard]] constexpr value_type *allocate(std::size_t n) {
+        return static_cast<value_type *>(allocator_->allocate_aligned(n * sizeof(T), alignof(T)));
+    }
+
+    constexpr void deallocate(value_type *ptr, size_t count) noexcept {
+        allocator_->deallocate(ptr, count * sizeof(T));
+    }
+
+    // Intercept zero-argument construction to do default initialization.
+    // template <typename U>
+    // void construct(U* p) noexcept(std::is_nothrow_default_constructible_v<U>) {
+    //     ::new (static_cast<void*>(p)) U;
+    // }
+};
+
 } // namespace details

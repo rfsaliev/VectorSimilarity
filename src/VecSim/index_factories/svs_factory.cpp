@@ -52,7 +52,13 @@ VecSimIndex *NewIndex(const VecSimParams *params) {
 // }
 
 size_t EstimateElementSize(const SVSParams *params) {
-    return params->dim * VecSimType_sizeof(params->type) + sizeof(labelType) + sizeof(void *);
+    // FIXME(rfsaliev): custom allocator for svs::index::MutableVamanaIndex::translator_
+    // + sizeof(svs::IDTranslator::external_id_type)
+    // + sizeof(svs::IDTranslator::internal_id_type)
+    // FIXME(rfsaliev): fix SVS graph construction with custom allocator
+    // + size_of_graph_node(labelType)
+
+    return params->dim * VecSimType_sizeof(params->type); // vector data
 };
 
 size_t EstimateInitialSize(const SVSParams *params) {
@@ -61,8 +67,7 @@ size_t EstimateInitialSize(const SVSParams *params) {
 
     // Assume FLOAT32, Single
     // using T = uint32_t;
-    using T = svs::data::BlockedData<float, 10>;
-    est += sizeof(SVSIndex<T, svs::distance::DistanceL2>);
+    est += sizeof(SVSIndex<float, svs::distance::DistanceL2>);
 
     return est;
 }

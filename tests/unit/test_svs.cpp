@@ -1478,6 +1478,7 @@ TYPED_TEST(SVSTest, testSizeEstimation) {
 
     GenerateAndAddVector<TEST_DATA_T>(index, dim, 0);
     actual = index->getAllocationSize() - actual; // get the delta
+    ASSERT_GT(actual, 0);
     ASSERT_GE(estimation * 1.01, actual);
     ASSERT_LE(estimation * 0.99, actual);
 

@@ -32,7 +32,6 @@
 #include "VecSim/algorithms/svs/svs_batch_iterator.h"
 
 // TODO(rfsaliev)
-//  * remove VecSimIndexAbstract from inheritance chain
 //  * wrap vamana_idx into a handler with init()/get() to avoid improper use risk
 template <typename DataType, typename DistType>
 class SVSIndex : public VecSimIndexInterface {
@@ -40,7 +39,10 @@ protected:
     using data_type = DataType;
     using dist_type = DistType;
 
-    using index_storage_type = svs::data::BlockedData<DataType>;
+    using allocator_type = details::SVSAllocator<DataType>;
+    using blocked_type = svs::data::Blocked<allocator_type>;
+    using index_storage_type = svs::data::BlockedData<DataType, svs::Dynamic, allocator_type>;
+    // FIXME(rfsaliev): Add SVS graph construction with custom allocator
     using graph_type = svs::graphs::SimpleBlockedGraph<uint32_t>;
     using impl_type =
         svs::index::vamana::MutableVamanaIndex<graph_type, index_storage_type, dist_type>;
@@ -49,9 +51,30 @@ protected:
     size_t changes_num = 0;
     SVSParams params_;
     std::unique_ptr<impl_type> vamana_idx;
+    allocator_type svs_allocator_;
 
-    // TODO(rfsaliev) move to params
-    static size_t num_threads() { return 4; }
+    size_t num_threads() const { return params_.num_threads; }
+
+    static constexpr SVSParams initParams(const SVSParams* hint) {
+        // clang-format off
+        return SVSParams {
+            .type = hint->type,
+            .dim = hint->dim,
+            .metric = hint->metric,
+            .multi = false,
+            .initialCapacity = hint->initialCapacity,
+            .blockSize = hint->blockSize ? hint->blockSize : DEFAULT_BLOCK_SIZE,
+
+            .alpha = hint->alpha ? hint->alpha : (hint->metric == VecSimMetric_L2 ? 1.2f : 0.9f),
+            .graph_max_degree = hint->graph_max_degree ? hint->graph_max_degree : 32,
+            .window_size = hint->window_size ? hint->window_size : 64,
+            .max_candidate_pool_size = hint->max_candidate_pool_size ? hint->max_candidate_pool_size : 80,
+            .prune_to = hint->prune_to ? hint->prune_to : 32,
+            .use_full_search_history = hint->use_full_search_history ? hint->use_full_search_history : true,
+            .num_threads = hint->num_threads ? hint->num_threads : 4
+        };
+        // clang-format on
+    }
 
     static svs::index::vamana::VamanaBuildParameters
     MakeVamanaBuildParameters(const SVSParams &params) {
@@ -65,7 +88,9 @@ protected:
 
         // construct SVS index for first row
         if (!vamana_idx) {
-            svs::data::BlockedData<DataType> init_data{1, params_.dim};
+            auto bs = params_.blockSize > 0 ? params_.blockSize : DEFAULT_BLOCK_SIZE;
+            auto svs_bs = svs::lib::prevpow2(bs * params_.dim * sizeof(data_type));
+            index_storage_type init_data{1, params_.dim, blocked_type{{svs_bs}, svs_allocator_}};
             auto dst = init_data.get_datum(0);
             std::copy(vector_data, vector_data + params_.dim, dst.begin());
 
@@ -120,8 +145,8 @@ protected:
 
 public:
     SVSIndex(const SVSParams *params, std::shared_ptr<VecSimAllocator> allocator)
-        : VecSimIndexInterface{std::move(allocator)}, changes_num{0}, params_{*params},
-          vamana_idx{nullptr} {}
+        : VecSimIndexInterface{allocator}, changes_num{0}, params_{initParams(params)},
+          vamana_idx{nullptr}, svs_allocator_{std::move(allocator)} {}
 
     ~SVSIndex() = default;
 
@@ -234,7 +259,7 @@ public:
         // Base search parameters for the iterator schedule.
         // This uses a search window size/capacity of 4.
         auto base_parameters = svs::index::vamana::VamanaSearchParameters{}
-                                   .buffer_config({params_.window_size})
+                                   .buffer_config({params_.window_size > batchSize ? params_.window_size : batchSize})
                                    .search_buffer_visited_set(true);
         auto schedule = svs::index::vamana::DefaultSchedule{base_parameters, batchSize};
         std::span<const data_type> query{reinterpret_cast<const data_type *>(queryBlob),

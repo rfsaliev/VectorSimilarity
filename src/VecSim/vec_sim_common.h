@@ -148,6 +148,7 @@ typedef struct {
     size_t max_candidate_pool_size;
     size_t prune_to;
     bool use_full_search_history;
+    size_t num_threads;
 } SVSParams;
 
 // A struct that contains HNSW tiered index specific params.
