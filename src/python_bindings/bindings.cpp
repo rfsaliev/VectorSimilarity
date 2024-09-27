@@ -539,10 +539,20 @@ public:
     }
 };
 
+class PySVSIndex : public PyVecSimIndex {
+public:
+    explicit PySVSIndex(const SVSParams &svs_params) {
+        VecSimParams params = {.algo = VecSimAlgo_SVS,
+                               .algoParams = {.svsParams = svs_params}};
+        this->index = std::shared_ptr<VecSimIndex>(VecSimIndex_New(&params), VecSimIndex_Free);
+    }
+};
+
 PYBIND11_MODULE(VecSim, m) {
     py::enum_<VecSimAlgo>(m, "VecSimAlgo")
         .value("VecSimAlgo_HNSWLIB", VecSimAlgo_HNSWLIB)
         .value("VecSimAlgo_BF", VecSimAlgo_BF)
+        .value("VecSimAlgo_SVS", VecSimAlgo_SVS)
         .export_values();
 
     py::enum_<VecSimType>(m, "VecSimType")
@@ -588,6 +598,21 @@ PYBIND11_MODULE(VecSim, m) {
         .def_readwrite("initialCapacity", &BFParams::initialCapacity)
         .def_readwrite("blockSize", &BFParams::blockSize);
 
+    py::class_<SVSParams>(m, "SVSParams")
+        .def(py::init())
+        .def_readwrite("type", &SVSParams::type)
+        .def_readwrite("dim", &SVSParams::dim)
+        .def_readwrite("metric", &SVSParams::metric)
+        .def_readwrite("multi", &SVSParams::multi)
+        .def_readwrite("initialCapacity", &SVSParams::initialCapacity)
+        .def_readwrite("blockSize", &SVSParams::blockSize)
+        .def_readwrite("alpha", &SVSParams::alpha)
+        .def_readwrite("graph_max_degree", &SVSParams::graph_max_degree)
+        .def_readwrite("window_size", &SVSParams::window_size)
+        .def_readwrite("max_candidate_pool_size", &SVSParams::max_candidate_pool_size)
+        .def_readwrite("prune_to", &SVSParams::prune_to)
+        .def_readwrite("use_full_search_history", &SVSParams::use_full_search_history);
+
     py::class_<TieredHNSWParams>(m, "TieredHNSWParams")
         .def(py::init())
         .def_readwrite("swapJobThreshold", &TieredHNSWParams::swapJobThreshold);
@@ -595,7 +620,8 @@ PYBIND11_MODULE(VecSim, m) {
     py::class_<AlgoParams>(m, "AlgoParams")
         .def(py::init())
         .def_readwrite("hnswParams", &AlgoParams::hnswParams)
-        .def_readwrite("bfParams", &AlgoParams::bfParams);
+        .def_readwrite("bfParams", &AlgoParams::bfParams)
+        .def_readwrite("svsParams", &AlgoParams::svsParams);
 
     py::class_<VecSimParams>(m, "VecSimParams")
         .def(py::init())
@@ -661,6 +687,10 @@ PYBIND11_MODULE(VecSim, m) {
 
     py::class_<PyBFIndex, PyVecSimIndex>(m, "BFIndex")
         .def(py::init([](const BFParams &params) { return new PyBFIndex(params); }),
+             py::arg("params"));
+
+    py::class_<PySVSIndex, PyVecSimIndex>(m, "SVSIndex")
+        .def(py::init([](const SVSParams &params) { return new PySVSIndex(params); }),
              py::arg("params"));
 
     py::class_<PyBatchIterator>(m, "BatchIterator")
