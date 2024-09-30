@@ -8,11 +8,9 @@
 
 /* TODO clean the includes */
 #pragma once
-#include "VecSim/utils/data_block.h"
-#include "VecSim/vec_sim_index.h"
+#include "VecSim/vec_sim_interface.h"
 #include "VecSim/spaces/spaces.h"
 #include "VecSim/utils/vecsim_stl.h"
-#include "VecSim/utils/vecsim_results_container.h"
 #include "VecSim/index_factories/brute_force_factory.h"
 #include "VecSim/spaces/spaces.h"
 #include "VecSim/query_result_definitions.h"
