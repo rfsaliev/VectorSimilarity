@@ -34,12 +34,12 @@ private:
 
     static std::unique_ptr<impl_type> make_impl(const Index *index, void *query_vector,
                                                 VecSimQueryParams *queryParams) {
-        const size_t batchSize = queryParams ? queryParams->batchSize : 10;
-
+        auto sp = details::joinSearchParams(index->get_search_parameters(), queryParams);
+        const size_t batch_size = queryParams && queryParams->batchSize
+                                      ? queryParams->batchSize
+                                      : sp.buffer_config_.get_search_window_size();
         // Base search parameters for the iterator schedule.
-        // This uses a search window size/capacity of 4.
-        auto base_parameters = svs::index::vamana::VamanaSearchParameters{}.buffer_config({4});
-        auto schedule = svs::index::vamana::DefaultSchedule{base_parameters, batchSize};
+        auto schedule = svs::index::vamana::DefaultSchedule{sp, batch_size};
         std::span<const DataType> query{reinterpret_cast<DataType *>(query_vector),
                                         index->dimensions()};
         return std::make_unique<svs::index::vamana::BatchIterator<Index, DataType>>(*index, query,

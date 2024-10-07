@@ -12,7 +12,7 @@ import hnswlib
 
 def create_svs_index(dim, num_elements, data_type, metric = VecSimMetric_L2,
                      alpha = 1.2, graph_max_degree = 64, window_size = 128,
-                     max_candidate_pool_size = 1024, prune_to = 60, full_search_history = True):
+                     max_candidate_pool_size = 1024, prune_to = 60, full_search_history = True, num_threads = 4):
     svs_params = SVSParams()
 
     svs_params.initialCapacity = num_elements
@@ -20,11 +20,12 @@ def create_svs_index(dim, num_elements, data_type, metric = VecSimMetric_L2,
     svs_params.type = data_type
     svs_params.metric = metric
     svs_params.alpha = alpha
-    svs_params.graph_max_degree = 64
-    svs_params.window_size = 128
-    svs_params.max_candidate_pool_size = 1024
-    svs_params.prune_to = 60
-    svs_params.use_full_search_history = True
+    svs_params.graph_max_degree = graph_max_degree
+    svs_params.window_size = window_size
+    svs_params.max_candidate_pool_size = max_candidate_pool_size
+    svs_params.prune_to = prune_to
+    svs_params.use_full_search_history = full_search_history
+    svs_params.num_threads = num_threads
 
     return SVSIndex(svs_params)
 
@@ -38,15 +39,9 @@ def compute_k_cosine(dataset, query, k):
     dists = sorted(dists)
     return dists[:k]
 
-def compute_range_euclidean(dataset, query, range):
-    dists = [(spatial.distance.euclidean(query, vec), key) for key, vec in dataset]
-    dists = sorted(dists)
-    result = []
-    for dist in dists:
-        if dist[0] > range:
-            break
-        result.append(dist)
-    return result
+def compute_range_euclidean(dataset, query, radius):
+    dists = [(spatial.distance.sqeuclidean(query, vec), key) for key, vec in dataset]
+    return sorted([(dist, key) for dist, key in dists if dist <= radius])
 
 def extract_labels(dists):
     return [key for _, key in dists]
@@ -245,6 +240,110 @@ def test_batch_iterator():
     # print("Overall results returned:", len(accumulated_labels), "in", iterations, "iterations")
 
 
+def test_topk_query():
+    dim = 128
+    num_elements = 100000
+
+    index = create_svs_index(dim, num_elements, VecSimType_FLOAT32, VecSimMetric_L2, num_threads = 0)
+
+    np.random.seed(47)
+    start = time.time()
+    data = np.float32(np.random.random((num_elements, dim)))
+    print(f'Sample data generated in {time.time() - start} seconds')
+    vectors = []
+    start = time.time()
+    for i, vector in enumerate(data):
+        vectors.append((i, vector))
+
+    index.add_vector_parallel(data, np.array(range(num_elements)))
+    print(f'Index built in {time.time() - start} seconds')
+
+    query_data = np.float32(np.random.random((1, dim)))
+
+    k = 128
+    recalls = {}
+
+    for window_size in [128, 256, 512]:
+        query_params = VecSimQueryParams()
+        query_params.svsRuntimeParams.windowSize = window_size
+        query_params.svsRuntimeParams.visitedSet = SVSVisitedSetMode.ENABLE
+        start = time.time()
+        redis_labels, redis_distances = index.knn_query(query_data, k, query_param=query_params)
+        end = time.time()
+        assert len(redis_labels[0]) == k
+
+        actual_results = compute_k_euclidean(vectors, query_data.flat, k)
+        assert len(actual_results) == k
+
+        keys = extract_labels(actual_results)
+        correct = count_correctness(redis_labels[0], keys)
+
+        print(
+            f'\nlookup time for {num_elements} vectors with dim={dim} took {end - start} seconds with window_size={window_size},'
+            f' got {correct} correct results, which are {correct / k} of the entire results in the range.')
+
+        recalls[window_size] = correct / k
+
+    # Expect higher recalls for higher epsilon values.
+    assert recalls[128] <= recalls[256] <= recalls[512]
+
+    # Expect zero results for radius==0
+    redis_labels, redis_distances = index.knn_query(query_data, 0)
+    assert len(redis_labels[0]) == 0
+
+
+def test_range_query():
+    dim = 100
+    num_elements = 100000
+
+    index = create_svs_index(dim, num_elements, VecSimType_FLOAT32, VecSimMetric_L2, num_threads = 0)
+
+    np.random.seed(47)
+    start = time.time()
+    data = np.float32(np.random.random((num_elements, dim)))
+    print(f'Sample data generated in {time.time() - start} seconds')
+    vectors = []
+    start = time.time()
+    for i, vector in enumerate(data):
+        vectors.append((i, vector))
+
+    index.add_vector_parallel(data, np.array(range(num_elements)))
+    print(f'Index built in {time.time() - start} seconds')
+
+    query_data = np.float32(np.random.random((1, dim)))
+
+    radius = 13.0
+    recalls = {}
+
+    for window_size in [128, 256, 512]:
+        query_params = VecSimQueryParams()
+        query_params.svsRuntimeParams.windowSize = window_size
+        query_params.svsRuntimeParams.visitedSet = SVSVisitedSetMode.ENABLE
+        start = time.time()
+        redis_labels, redis_distances = index.range_query(query_data, radius=radius, query_param=query_params)
+        end = time.time()
+        res_num = len(redis_labels[0])
+
+        actual_results = compute_range_euclidean(vectors, query_data.flat, radius)
+
+        print(
+            f'\nlookup time for {num_elements} vectors with dim={dim} took {end - start} seconds with window_size={window_size},'
+            f' got {res_num} results, which are {res_num / len(actual_results)} of the entire results in the range.')
+
+        # Compare the number of vectors that are actually within the range to the returned results.
+        assert np.all(np.isin(redis_labels, np.array([label for _, label in actual_results])))
+
+        assert max(redis_distances[0]) <= radius
+        recalls[window_size] = res_num / len(actual_results)
+
+    # Expect higher recalls for higher epsilon values.
+    assert recalls[128] <= recalls[256] <= recalls[512]
+
+    # Expect zero results for radius==0
+    redis_labels, redis_distances = index.range_query(query_data, radius=0)
+    assert len(redis_labels[0]) == 0
+
+
 # def test_serialization():
 #     dim = 16
 #     num_elements = 10000
@@ -309,55 +408,6 @@ def test_batch_iterator():
 #     recall_after = float(correct_after) / (k * num_queries)
 #     print("\nrecall after is: \n", recall_after)
 #     assert recall == recall_after
-
-
-# def test_range_query():
-#     dim = 100
-#     num_elements = 100000
-#     epsilon = 0.01
-
-#     index = create_hnsw_index(dim, num_elements, VecSimMetric_L2, VecSimType_FLOAT32, ef_construction=200, m=32,
-#                                    epsilon=epsilon)
-
-#     np.random.seed(47)
-#     data = np.float32(np.random.random((num_elements, dim)))
-#     vectors = []
-#     for i, vector in enumerate(data):
-#         index.add_vector(vector, i)
-#         vectors.append((i, vector))
-
-#     query_data = np.float32(np.random.random((1, dim)))
-
-#     radius = 13.0
-#     recalls = {}
-
-#     for epsilon_rt in [0.001, 0.01, 0.1]:
-#         query_params = VecSimQueryParams()
-#         query_params.hnswRuntimeParams.epsilon = epsilon_rt
-#         start = time.time()
-#         hnsw_labels, hnsw_distances = index.range_query(query_data, radius=radius, query_param=query_params)
-#         end = time.time()
-#         res_num = len(hnsw_labels[0])
-
-#         dists = sorted([(key, spatial.distance.sqeuclidean(query_data.flat, vec)) for key, vec in vectors])
-#         actual_results = [(key, dist) for key, dist in dists if dist <= radius]
-
-#         print(
-#             f'\nlookup time for {num_elements} vectors with dim={dim} took {end - start} seconds with epsilon={epsilon_rt},'
-#             f' got {res_num} results, which are {res_num / len(actual_results)} of the entire results in the range.')
-
-#         # Compare the number of vectors that are actually within the range to the returned results.
-#         assert np.all(np.isin(hnsw_labels, np.array([label for label, _ in actual_results])))
-
-#         assert max(hnsw_distances[0]) <= radius
-#         recalls[epsilon_rt] = res_num / len(actual_results)
-
-#     # Expect higher recalls for higher epsilon values.
-#     assert recalls[0.001] <= recalls[0.01] <= recalls[0.1]
-
-#     # Expect zero results for radius==0
-#     hnsw_labels, hnsw_distances = index.range_query(query_data, radius=0)
-#     assert len(hnsw_labels[0]) == 0
 
 
 # def test_recall_for_hnsw_multi_value():

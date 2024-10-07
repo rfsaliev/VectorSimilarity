@@ -12,6 +12,8 @@
 
 #include "svs/core/distance.h"
 #include "svs/core/query_result.h"
+#include "svs/core/logging.h"
+#include "spdlog/sinks/callback_sink.h"
 
 namespace details {
 template <typename DistType>
@@ -91,5 +93,29 @@ public:
     //     ::new (static_cast<void*>(p)) U;
     // }
 };
+
+inline svs::index::vamana::VamanaSearchParameters
+joinSearchParams(svs::index::vamana::VamanaSearchParameters &&sp,
+                 const VecSimQueryParams *queryParams) {
+    if (queryParams == nullptr) {
+        return std::move(sp);
+    }
+
+    auto &rt_params = queryParams->svsRuntimeParams;
+    if (rt_params.windowSize > 0) {
+        sp.buffer_config({rt_params.windowSize});
+    }
+    switch (rt_params.visitedSet) {
+    case VISITED_SET_ENABLE:
+        sp.search_buffer_visited_set(true);
+        break;
+    case VISITED_SET_DISABLE:
+        sp.search_buffer_visited_set(false);
+        break;
+    default:
+        break;
+    }
+    return std::move(sp);
+}
 
 } // namespace details

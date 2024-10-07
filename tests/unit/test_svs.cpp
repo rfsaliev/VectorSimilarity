@@ -17,7 +17,6 @@ template <typename index_type_t>
 class SVSTest : public ::testing::Test {
 public:
     using data_t = typename index_type_t::data_t;
-    using dist_t = typename index_type_t::dist_t;
 
 protected:
     VecSimIndex *CreateNewIndex(SVSParams &params) {
@@ -25,11 +24,8 @@ protected:
         return test_utils::CreateNewIndex(params, index_type_t::get_index_type());
     }
 
-    // SVSIndex<data_t, dist_t> *CastToSVS_Single(VecSimIndex *index) {
-    //     return reinterpret_cast<SVSIndex<data_t, dist_t> *>(index);
-    // }
-    SVSIndex<data_t, dist_t> *CastToSVS(VecSimIndex *index) {
-        return reinterpret_cast<SVSIndex<data_t, dist_t> *>(index);
+    SVSIndexBase *CastToSVS(VecSimIndex *index) {
+        return static_cast<SVSIndexBase*>(index);
     }
 };
 
@@ -84,7 +80,7 @@ TYPED_TEST(SVSTest, svs_vector_update_test) {
 
     VecSimIndex *index = this->CreateNewIndex(params);
 
-    SVSIndex<TEST_DATA_T, TEST_DIST_T> *svs_index = this->CastToSVS(index);
+    auto *svs_index = this->CastToSVS(index);
 
     EXPECT_EQ(VecSimIndex_IndexSize(index), 0);
 
@@ -151,6 +147,47 @@ TYPED_TEST(SVSTest, svs_vector_search_by_id_test) {
     for (size_t i = 0; i < n; i++) {
         GenerateAndAddVector<TEST_DATA_T>(index, dim, i, i);
     }
+    ASSERT_EQ(VecSimIndex_IndexSize(index), n);
+
+    TEST_DATA_T query[] = {50, 50, 50, 50};
+    auto verify_res = [&](size_t id, double score, size_t index) { EXPECT_EQ(id, (index + 45)); };
+    runTopKSearchTest(index, query, k, verify_res, nullptr, BY_ID);
+
+    VecSimIndex_Free(index);
+}
+
+TYPED_TEST(SVSTest, svs_bulk_vectors_add_test) {
+    size_t n = 1000;
+    size_t k = 11;
+    const size_t dim = 4;
+
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_L2,
+        .initialCapacity = 200,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_full_search_history = true,
+    };
+
+    VecSimIndex *index = this->CreateNewIndex(params);
+
+    auto svs_index = this->CastToSVS(index); // CAST_TO_SVS(index, svs::distance::DistanceL2);
+
+    std::vector<TEST_DATA_T[dim]> v(n);
+    for (size_t i = 0; i < n; i++) {
+        GenerateVector<TEST_DATA_T>(v[i], dim, i);
+    }
+
+    std::vector<size_t> ids(n);
+    std::iota(ids.begin(), ids.end(), 0);
+
+    svs_index->addVectors(v.data(), ids.data(), n);
+
     ASSERT_EQ(VecSimIndex_IndexSize(index), n);
 
     TEST_DATA_T query[] = {50, 50, 50, 50};

@@ -7,6 +7,7 @@
 #include "VecSim/vec_sim.h"
 #include "VecSim/algorithms/hnsw/hnsw.h"
 #include "VecSim/index_factories/hnsw_factory.h"
+#include "VecSim/algorithms/svs/svs.h"
 #include "VecSim/batch_iterator.h"
 #include "VecSim/types/bfloat16.h"
 #include "VecSim/types/float16.h"
@@ -542,9 +543,29 @@ public:
 class PySVSIndex : public PyVecSimIndex {
 public:
     explicit PySVSIndex(const SVSParams &svs_params) {
-        VecSimParams params = {.algo = VecSimAlgo_SVS,
-                               .algoParams = {.svsParams = svs_params}};
+        VecSimParams params = {.algo = VecSimAlgo_SVS, .algoParams = {.svsParams = svs_params}};
         this->index = std::shared_ptr<VecSimIndex>(VecSimIndex_New(&params), VecSimIndex_Free);
+    }
+
+    void addVectorsParallel(const py::object &input, const py::object &vectors_labels) {
+        py::array vectors_data(input);
+        // py::array labels(vectors_labels);
+        py::array_t<labelType, py::array::c_style | py::array::forcecast> labels(vectors_labels);
+
+        if (vectors_data.ndim() != 2) {
+            throw std::runtime_error("Input vectors data array must be 2D array");
+        }
+        if (labels.ndim() != 1) {
+            throw std::runtime_error("Input vectors labels array must be 1D array");
+        }
+        if (vectors_data.shape(0) != labels.shape(0)) {
+            throw std::runtime_error(
+                "The first dim of vectors data and labels arrays must be equal");
+        }
+        size_t n_vectors = vectors_data.shape(0);
+
+        auto svs_index = static_cast<SVSIndexBase *>(this->index.get());
+        svs_index->addVectors(vectors_data.data(), labels.data(), n_vectors);
     }
 };
 
@@ -575,6 +596,12 @@ PYBIND11_MODULE(VecSim, m) {
     py::enum_<VecSimQueryReply_Order>(m, "VecSimQueryReply_Order")
         .value("BY_SCORE", BY_SCORE)
         .value("BY_ID", BY_ID)
+        .export_values();
+
+    py::enum_<SVSVisitedSetMode>(m, "SVSVisitedSetMode")
+        .value("DEFAULT", VISITED_SET_DEFAULT)
+        .value("ENABLE", VISITED_SET_ENABLE)
+        .value("DISABLE", VISITED_SET_DISABLE)
         .export_values();
 
     py::class_<HNSWParams>(m, "HNSWParams")
@@ -611,7 +638,8 @@ PYBIND11_MODULE(VecSim, m) {
         .def_readwrite("window_size", &SVSParams::window_size)
         .def_readwrite("max_candidate_pool_size", &SVSParams::max_candidate_pool_size)
         .def_readwrite("prune_to", &SVSParams::prune_to)
-        .def_readwrite("use_full_search_history", &SVSParams::use_full_search_history);
+        .def_readwrite("use_full_search_history", &SVSParams::use_full_search_history)
+        .def_readwrite("num_threads", &SVSParams::num_threads);
 
     py::class_<TieredHNSWParams>(m, "TieredHNSWParams")
         .def(py::init())
@@ -631,12 +659,19 @@ PYBIND11_MODULE(VecSim, m) {
     py::class_<VecSimQueryParams> queryParams(m, "VecSimQueryParams");
 
     queryParams.def(py::init<>())
-        .def_readwrite("hnswRuntimeParams", &VecSimQueryParams::hnswRuntimeParams);
+        .def_readwrite("hnswRuntimeParams", &VecSimQueryParams::hnswRuntimeParams)
+        .def_readwrite("svsRuntimeParams", &VecSimQueryParams::svsRuntimeParams)
+        .def_readwrite("batchSize", &VecSimQueryParams::batchSize);
 
     py::class_<HNSWRuntimeParams>(queryParams, "HNSWRuntimeParams")
         .def(py::init<>())
         .def_readwrite("efRuntime", &HNSWRuntimeParams::efRuntime)
         .def_readwrite("epsilon", &HNSWRuntimeParams::epsilon);
+
+    py::class_<SVSRuntimeParams>(queryParams, "SVSRuntimeParams")
+        .def(py::init<>())
+        .def_readwrite("windowSize", &SVSRuntimeParams::windowSize)
+        .def_readwrite("visitedSet", &SVSRuntimeParams::visitedSet);
 
     py::class_<PyVecSimIndex>(m, "VecSimIndex")
         .def(py::init([](const VecSimParams &params) { return new PyVecSimIndex(params); }),
@@ -691,7 +726,9 @@ PYBIND11_MODULE(VecSim, m) {
 
     py::class_<PySVSIndex, PyVecSimIndex>(m, "SVSIndex")
         .def(py::init([](const SVSParams &params) { return new PySVSIndex(params); }),
-             py::arg("params"));
+             py::arg("params"))
+        .def("add_vector_parallel", &PySVSIndex::addVectorsParallel, py::arg("vectors"),
+             py::arg("labels"));
 
     py::class_<PyBatchIterator>(m, "BatchIterator")
         .def("has_next", &PyBatchIterator::hasNext)

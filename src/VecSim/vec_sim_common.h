@@ -199,6 +199,17 @@ typedef struct {
     double epsilon;   // Epsilon parameter for HNSW graph accuracy/latency for range search.
 } HNSWRuntimeParams;
 
+typedef enum {
+    VISITED_SET_DEFAULT = 0,
+    VISITED_SET_ENABLE,
+    VISITED_SET_DISABLE,
+} SVSVisitedSetMode;
+
+typedef struct {
+    size_t windowSize; // Search window size for Vamana graph accuracy/latency tune.
+    SVSVisitedSetMode visitedSet; // Enabling of the visited set for search.
+} SVSRuntimeParams;
+
 /**
  * @brief Query runtime information - the search mode in RediSearch (used for debug/testing).
  *
@@ -229,6 +240,7 @@ typedef enum {
 typedef struct {
     union {
         HNSWRuntimeParams hnswRuntimeParams;
+        SVSRuntimeParams svsRuntimeParams;
     };
     size_t batchSize;
     VecSearchMode searchMode;

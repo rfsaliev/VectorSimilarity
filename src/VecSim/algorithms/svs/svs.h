@@ -29,13 +29,20 @@
 #include "VecSim/algorithms/svs/svs_utils.h"
 #include "VecSim/algorithms/svs/svs_batch_iterator.h"
 
+class SVSIndexBase : public VecSimIndexInterface {
+public:
+    using VecSimIndexInterface::VecSimIndexInterface;
+    virtual int addVectors(const void *vectors_data, const labelType *labels, size_t n) = 0;
+};
+
 // TODO(rfsaliev)
 //  * wrap vamana_idx into a handler with init()/get() to avoid improper use risk
 template <typename DataType, typename DistType>
-class SVSIndex : public VecSimIndexInterface {
+class SVSIndex : public SVSIndexBase {
 protected:
     using data_type = DataType;
     using dist_type = DistType;
+    using Base = SVSIndexBase;
 
     using allocator_type = details::SVSAllocator<DataType>;
     using blocked_type = svs::data::Blocked<allocator_type>;
@@ -53,7 +60,7 @@ protected:
 
     size_t num_threads() const { return params_.num_threads; }
 
-    static constexpr SVSParams initParams(const SVSParams* hint) {
+    static constexpr SVSParams initParams(const SVSParams *hint) {
         // clang-format off
         return SVSParams {
             .type = hint->type,
@@ -69,7 +76,7 @@ protected:
             .max_candidate_pool_size = hint->max_candidate_pool_size ? hint->max_candidate_pool_size : 80,
             .prune_to = hint->prune_to ? hint->prune_to : 32,
             .use_full_search_history = hint->use_full_search_history ? hint->use_full_search_history : true,
-            .num_threads = hint->num_threads ? hint->num_threads : 4
+            .num_threads = hint->num_threads ? hint->num_threads : std::thread::hardware_concurrency()
         };
         // clang-format on
     }
@@ -81,32 +88,44 @@ protected:
                 params.prune_to,    params.use_full_search_history};
     }
 
-    int addVectorImpl(const DataType *vector_data, labelType label) {
-        std::vector<labelType> ids{label};
+    std::unique_ptr<impl_type> makeImpl(const SVSParams &params, index_storage_type data,
+                                        std::span<const labelType> ids) {
+        auto idx = std::make_unique<impl_type>(MakeVamanaBuildParameters(params_), std::move(data),
+                                               ids, DistType{}, num_threads());
+        auto sp = idx->get_search_parameters();
+        sp.buffer_config({idx->get_construction_window_size()});
+        idx->set_search_parameters(sp);
+        idx->reset_performance_parameters();
+        return idx;
+    }
 
-        // construct SVS index for first row
+    int addVectorsImpl(const DataType *vectors_data, const labelType *labels, size_t n) {
+        std::span<const labelType> ids(labels, n);
+        auto points = svs::data::ConstSimpleDataView<DataType>{vectors_data, n, params_.dim};
+
+        // construct SVS index for first rows
         if (!vamana_idx) {
             auto bs = params_.blockSize > 0 ? params_.blockSize : DEFAULT_BLOCK_SIZE;
             auto svs_bs = svs::lib::prevpow2(bs * params_.dim * sizeof(data_type));
-            index_storage_type init_data{1, params_.dim, blocked_type{{svs_bs}, svs_allocator_}};
-            auto dst = init_data.get_datum(0);
-            std::copy(vector_data, vector_data + params_.dim, dst.begin());
-
-            vamana_idx = std::make_unique<impl_type>(MakeVamanaBuildParameters(params_), init_data,
-                                                     ids, DistType{}, num_threads());
-            return 1;
+            index_storage_type init_data{n, params_.dim, blocked_type{{svs_bs}, svs_allocator_}};
+            for (const auto &i : points.eachindex()) {
+                init_data.set_datum(i, points.get_datum(i));
+            }
+            vamana_idx = makeImpl(params_, std::move(init_data), ids);
+            return n;
         }
 
-        int ret = 1;
-
-        if (get_vamana()->has_id(label)) {
-            get_vamana()->delete_entries(ids);
-            ret = 0;
+        std::vector<labelType> entries_to_delete;
+        entries_to_delete.reserve(n);
+        for (const auto &label : ids) {
+            if (get_vamana()->has_id(label)) {
+                entries_to_delete.push_back(label);
+            }
         }
+        get_vamana()->delete_entries(entries_to_delete);
 
-        auto points = svs::data::ConstSimpleDataView<DataType>{vector_data, 1, params_.dim};
         get_vamana()->add_points(std::move(points), ids);
-        return ret;
+        return n - entries_to_delete.size();
     }
 
     impl_type *get_vamana() const {
@@ -143,8 +162,8 @@ protected:
 
 public:
     SVSIndex(const SVSParams *params, std::shared_ptr<VecSimAllocator> allocator)
-        : VecSimIndexInterface{allocator}, changes_num{0}, params_{initParams(params)},
-          vamana_idx{nullptr}, svs_allocator_{std::move(allocator)} {}
+        : Base{allocator}, changes_num{0}, params_{initParams(params)}, vamana_idx{nullptr},
+          svs_allocator_{std::move(allocator)} {}
 
     ~SVSIndex() = default;
 
@@ -196,7 +215,11 @@ public:
     }
 
     int addVector(const void *vector_data, labelType label, void *auxiliaryCtx = nullptr) override {
-        return addVectorImpl(reinterpret_cast<const DataType *>(vector_data), label);
+        return addVectorsImpl(reinterpret_cast<const DataType *>(vector_data), &label, 1);
+    }
+
+    int addVectors(const void *vectors_data, const labelType *labels, size_t n) override {
+        return addVectorsImpl(reinterpret_cast<const DataType *>(vectors_data), labels, n);
     }
 
     int deleteVector(labelType label) override {
@@ -233,7 +256,7 @@ public:
         auto queries = svs::data::ConstSimpleDataView<DataType>{
             reinterpret_cast<const DataType *>(queryBlob), 1, params_.dim};
         auto result = svs::QueryResult<size_t>{queries.size(), k};
-        auto sp = get_vamana()->get_search_parameters();
+        auto sp = details::joinSearchParams(get_vamana()->get_search_parameters(), queryParams);
         get_vamana()->search(result.view(), queries, sp);
 
         assert(result.n_queries() == 1);
@@ -252,21 +275,20 @@ public:
             return rep;
         }
 
-        const size_t batchSize =
-            queryParams && queryParams->batchSize ? queryParams->batchSize : 10;
+        auto sp = details::joinSearchParams(get_vamana()->get_search_parameters(), queryParams);
+        const size_t batch_size = queryParams && queryParams->batchSize
+                                      ? queryParams->batchSize
+                                      : sp.buffer_config_.get_search_window_size();
         // Base search parameters for the iterator schedule.
-        // This uses a search window size/capacity of 4.
-        auto base_parameters = svs::index::vamana::VamanaSearchParameters{}
-                                   .buffer_config({params_.window_size > batchSize ? params_.window_size : batchSize})
-                                   .search_buffer_visited_set(true);
-        auto schedule = svs::index::vamana::DefaultSchedule{base_parameters, batchSize};
+        auto schedule = svs::index::vamana::DefaultSchedule{sp, batch_size};
         std::span<const data_type> query{reinterpret_cast<const data_type *>(queryBlob),
                                          params_.dim};
         svs::index::vamana::BatchIterator<impl_type, data_type> svs_it{*get_vamana(), query,
                                                                        schedule};
 
+        int batch_times = 3;
         bool done = false;
-        while (svs_it.size() > 0 && !done) {
+        while (svs_it.size() > 0 && batch_times > 0) {
             for (auto &neighbor : svs_it) {
                 if (toVecSimDistance(neighbor.distance()) <= radius) {
                     rep->results.push_back(
@@ -276,6 +298,9 @@ public:
                     done = true;
                 }
             }
+            if (done)
+                if (--batch_times == 0)
+                    break;
             svs_it.next();
         }
         return rep;
