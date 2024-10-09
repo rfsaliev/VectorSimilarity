@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "svs/index/vamana/dynamic_index.h"
+#include "svs/extensions/vamana/lvq.h"
 
 #include "VecSim/algorithms/svs/svs_utils.h"
 #include "VecSim/algorithms/svs/svs_batch_iterator.h"
@@ -47,16 +48,22 @@ protected:
     using allocator_type = details::SVSAllocator<DataType>;
     using blocked_type = svs::data::Blocked<allocator_type>;
     using index_storage_type = svs::data::BlockedData<DataType, svs::Dynamic, allocator_type>;
+
+    using allocator_type_lvq = details::SVSAllocator<std::byte>;
+    using blocked_type_lvq = svs::data::Blocked<allocator_type_lvq>;
+    using index_storage_type_lvq = svs::quantization::lvq::LVQDataset<8, 0, svs::Dynamic, svs::quantization::lvq::Sequential, blocked_type_lvq>;
+
     // FIXME(rfsaliev): Add SVS graph construction with custom allocator
     using graph_type = svs::graphs::SimpleBlockedGraph<uint32_t>;
     using impl_type =
-        svs::index::vamana::MutableVamanaIndex<graph_type, index_storage_type, dist_type>;
+        svs::index::vamana::MutableVamanaIndex<graph_type, index_storage_type_lvq, dist_type>;
 
     /* Notice: SimpleGraph template can only be instatiatied for std::unsigned_integral type */
     size_t changes_num = 0;
     SVSParams params_;
     std::unique_ptr<impl_type> vamana_idx;
     allocator_type svs_allocator_;
+    allocator_type_lvq svs_allocator_lvq_;
 
     size_t num_threads() const { return params_.num_threads; }
 
@@ -88,7 +95,7 @@ protected:
                 params.prune_to,    params.use_full_search_history};
     }
 
-    std::unique_ptr<impl_type> makeImpl(const SVSParams &params, index_storage_type data,
+    std::unique_ptr<impl_type> makeImpl(const SVSParams &params, index_storage_type_lvq data,
                                         std::span<const labelType> ids) {
         auto idx = std::make_unique<impl_type>(MakeVamanaBuildParameters(params_), std::move(data),
                                                ids, DistType{}, num_threads());
@@ -107,11 +114,17 @@ protected:
         if (!vamana_idx) {
             auto bs = params_.blockSize > 0 ? params_.blockSize : DEFAULT_BLOCK_SIZE;
             auto svs_bs = svs::lib::prevpow2(bs * params_.dim * sizeof(data_type));
-            index_storage_type init_data{n, params_.dim, blocked_type{{svs_bs}, svs_allocator_}};
+            auto data_allocator = details::SVSAllocator<data_type>{this->getAllocator()};
+            index_storage_type init_data{n, params_.dim, blocked_type{{svs_bs}, data_allocator}};
             for (const auto &i : points.eachindex()) {
                 init_data.set_datum(i, points.get_datum(i));
             }
-            vamana_idx = makeImpl(params_, std::move(init_data), ids);
+
+            index_storage_type_lvq::allocator_type::allocator_type lvq_allocator{this->getAllocator()};
+            auto blocked_alloc = blocked_type_lvq{{svs_bs}, lvq_allocator};
+            auto init_data_lvq = index_storage_type_lvq::compress(init_data, num_threads(), 32, blocked_alloc);
+
+            vamana_idx = makeImpl(params_, std::move(init_data_lvq), ids);
             return n;
         }
 
@@ -163,7 +176,7 @@ protected:
 public:
     SVSIndex(const SVSParams *params, std::shared_ptr<VecSimAllocator> allocator)
         : Base{allocator}, changes_num{0}, params_{initParams(params)}, vamana_idx{nullptr},
-          svs_allocator_{std::move(allocator)} {}
+          svs_allocator_{allocator}, svs_allocator_lvq_{allocator} {}
 
     ~SVSIndex() = default;
 
@@ -238,11 +251,34 @@ public:
 
         auto index_impl = get_vamana(); //->get_impl()->get_impl();
         auto my_datum = index_impl->get_datum(label);
-        dist_type dist_f = index_impl->distance_function();
 
-        return details::computeVecSimDistance(
-            dist_f, std::span{reinterpret_cast<const DataType *>(vector_data), params_.dim},
-            my_datum);
+        auto build_adaptor = svs::index::vamana::extensions::build_adaptor(index_impl->view_data(), index_impl->distance_function());
+        auto dist_f = build_adaptor.general_distance();
+        auto query_datum = std::span{reinterpret_cast<const DataType *>(vector_data), params_.dim};
+        // FIXME(rfsaliev):
+        // Changes required in svs/include/svs/quantization/lvq/vectors.h:
+        /*
+        template <typename Distance> class DecompressionAdaptor {
+        public:
+        ...
+            // Distance API.
+            template <LVQCompressedVector Left> void fix_argument(Left left) {
+                decompress(decompressed_, left, inner_.get_centroid(left.get_selector()).data());
+                inner_.fix_argument(view());
+            }
+
+        +    void fix_argument(const std::span<const float>& left) {
+        +        decompressed_.resize(left.size());
+        +        decompressed_.assign(left.begin(), left.end());
+        +        inner_.fix_argument(view());
+        +    }
+        ...
+        */
+
+        svs::distance::maybe_fix_argument(dist_f, query_datum);
+
+        auto dist = svs::distance::compute(dist_f, query_datum, my_datum);
+        return toVecSimDistance(dist);
     }
 
     VecSimQueryReply *topKQuery(const void *queryBlob, size_t k,

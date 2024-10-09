@@ -23,8 +23,10 @@ VecSimIndex *NewIndex(const SVSParams *svsParams,
             SVSIndex<DataType, svs::distance::DistanceIP>(svsParams, allocator);
     case VecSimMetric_Cosine:
         return new (allocator)
-            SVSIndex<DataType, svs::distance::DistanceCosineSimilarity>(svsParams,
-                                                                        allocator);
+            // FIXME(rfsaliev) To be fixed in SVS:
+            // is not defined in svs/include/svs/quantization/lvq/vectors.h :
+            // template <> struct BiasedDistance<distance::DistanceCosineSimilarity>
+            SVSIndex<DataType, svs::distance::DistanceIP>(svsParams, allocator);
     default:
         // If we got here something is wrong.
         assert(false && "Unknown distance metric type");
