@@ -25,10 +25,67 @@
 #include <vector>
 
 #include "svs/index/vamana/dynamic_index.h"
-#include "svs/extensions/vamana/lvq.h"
 
 #include "VecSim/algorithms/svs/svs_utils.h"
 #include "VecSim/algorithms/svs/svs_batch_iterator.h"
+
+template <typename DataType, size_t QuantBits, class Enable = void>
+struct SVSStorageTraits {
+    using allocator_type = details::SVSAllocator<DataType>;
+    using blocked_type = svs::data::Blocked<allocator_type>;
+    using index_storage_type = svs::data::BlockedData<DataType, svs::Dynamic, allocator_type>;
+
+    template <svs::data::ImmutableMemoryDataset Dataset>
+    static index_storage_type create_storage(const Dataset& data, size_t block_size, std::shared_ptr<VecSimAllocator> allocator) {
+        const auto dim = data.dimensions();
+        const auto size = data.size();
+        auto svs_bs = svs::lib::prevpow2(block_size * dim * sizeof(DataType));
+        allocator_type data_allocator{std::move(allocator)};
+        blocked_type   blocked_alloc{{svs_bs}, data_allocator};
+        index_storage_type init_data{size, dim, blocked_alloc};
+        for (const auto &i : data.eachindex()) {
+            init_data.set_datum(i, data.get_datum(i));
+        }
+        return init_data;
+    }
+};
+
+// Can be detected and defined via cmake config
+#define LVQ_EXISTS 0
+
+#if LVQ_EXISTS
+#include "svs/extensions/vamana/lvq.h"
+template <typename DataType, size_t QuantBits>
+struct SVSStorageTraits<DataType, QuantBits, std::enable_if_t<(QuantBits > 0)>> {
+    using allocator_type = details::SVSAllocator<std::byte>;
+    using blocked_type = svs::data::Blocked<allocator_type>;
+    using index_storage_type = svs::quantization::lvq::LVQDataset<QuantBits, 0, svs::Dynamic, svs::quantization::lvq::Sequential, blocked_type>;
+
+    template <svs::data::ImmutableMemoryDataset Dataset>
+    static index_storage_type create_storage(const Dataset& data, size_t block_size, std::shared_ptr<VecSimAllocator> allocator) {
+        const auto dim = data.dimensions();
+        auto svs_bs = svs::lib::prevpow2(block_size * dim * sizeof(std::byte));
+        allocator_type data_allocator{std::move(allocator)};
+        blocked_type   blocked_alloc{{svs_bs}, data_allocator};
+
+        // FIXME(rfsaliev) svs::quantization::lvq::VectorBias to be fixed to support ConstSimpleDataView here:
+        /*
+        --- a/include/svs/quantization/lvq/ops.h
+        +++ b/include/svs/quantization/lvq/ops.h
+        @@ -169,7 +169,7 @@ template <typename T> class ScaleShift {
+        struct VectorBias : public DatasetPreOpBase {
+            static std::string name() { return "preop-vector-bias"; }
+        
+        -    template <typename T> using element_type_t = typename T::element_type;
+        +    template <typename T> using element_type_t = std::remove_cv_t<typename T::element_type>;
+            using misc_type = std::vector<double>;
+        
+            ///
+        */
+        return index_storage_type::compress(data, blocked_alloc);
+    }
+};
+#endif
 
 class SVSIndexBase : public VecSimIndexInterface {
 public:
@@ -36,34 +93,30 @@ public:
     virtual int addVectors(const void *vectors_data, const labelType *labels, size_t n) = 0;
 };
 
+// QUANT_BITS == 0 means no LVQ
+#define QUANT_BITS 8
+
 // TODO(rfsaliev)
 //  * wrap vamana_idx into a handler with init()/get() to avoid improper use risk
-template <typename DataType, typename DistType>
+template <typename DataType, typename DistType, size_t QuantBits = QUANT_BITS>
 class SVSIndex : public SVSIndexBase {
 protected:
     using data_type = DataType;
     using dist_type = DistType;
     using Base = SVSIndexBase;
 
-    using allocator_type = details::SVSAllocator<DataType>;
-    using blocked_type = svs::data::Blocked<allocator_type>;
-    using index_storage_type = svs::data::BlockedData<DataType, svs::Dynamic, allocator_type>;
-
-    using allocator_type_lvq = details::SVSAllocator<std::byte>;
-    using blocked_type_lvq = svs::data::Blocked<allocator_type_lvq>;
-    using index_storage_type_lvq = svs::quantization::lvq::LVQDataset<8, 0, svs::Dynamic, svs::quantization::lvq::Sequential, blocked_type_lvq>;
+    using storage_traits_t = SVSStorageTraits<DataType, QuantBits>;
+    using index_storage_type = typename storage_traits_t::index_storage_type;
 
     // FIXME(rfsaliev): Add SVS graph construction with custom allocator
     using graph_type = svs::graphs::SimpleBlockedGraph<uint32_t>;
     using impl_type =
-        svs::index::vamana::MutableVamanaIndex<graph_type, index_storage_type_lvq, dist_type>;
+        svs::index::vamana::MutableVamanaIndex<graph_type, index_storage_type, dist_type>;
 
     /* Notice: SimpleGraph template can only be instatiatied for std::unsigned_integral type */
     size_t changes_num = 0;
     SVSParams params_;
     std::unique_ptr<impl_type> vamana_idx;
-    allocator_type svs_allocator_;
-    allocator_type_lvq svs_allocator_lvq_;
 
     size_t num_threads() const { return params_.num_threads; }
 
@@ -95,7 +148,7 @@ protected:
                 params.prune_to,    params.use_full_search_history};
     }
 
-    std::unique_ptr<impl_type> makeImpl(const SVSParams &params, index_storage_type_lvq data,
+    std::unique_ptr<impl_type> makeImpl(const SVSParams &params, impl_type::data_type data,
                                         std::span<const labelType> ids) {
         auto idx = std::make_unique<impl_type>(MakeVamanaBuildParameters(params_), std::move(data),
                                                ids, DistType{}, num_threads());
@@ -113,18 +166,8 @@ protected:
         // construct SVS index for first rows
         if (!vamana_idx) {
             auto bs = params_.blockSize > 0 ? params_.blockSize : DEFAULT_BLOCK_SIZE;
-            auto svs_bs = svs::lib::prevpow2(bs * params_.dim * sizeof(data_type));
-            auto data_allocator = details::SVSAllocator<data_type>{this->getAllocator()};
-            index_storage_type init_data{n, params_.dim, blocked_type{{svs_bs}, data_allocator}};
-            for (const auto &i : points.eachindex()) {
-                init_data.set_datum(i, points.get_datum(i));
-            }
-
-            index_storage_type_lvq::allocator_type::allocator_type lvq_allocator{this->getAllocator()};
-            auto blocked_alloc = blocked_type_lvq{{svs_bs}, lvq_allocator};
-            auto init_data_lvq = index_storage_type_lvq::compress(init_data, num_threads(), 32, blocked_alloc);
-
-            vamana_idx = makeImpl(params_, std::move(init_data_lvq), ids);
+            auto init_data = storage_traits_t::create_storage(points, bs, this->getAllocator());
+            this->vamana_idx = makeImpl(params_, std::move(init_data), ids);
             return n;
         }
 
@@ -175,8 +218,7 @@ protected:
 
 public:
     SVSIndex(const SVSParams *params, std::shared_ptr<VecSimAllocator> allocator)
-        : Base{allocator}, changes_num{0}, params_{initParams(params)}, vamana_idx{nullptr},
-          svs_allocator_{allocator}, svs_allocator_lvq_{allocator} {}
+        : Base{allocator}, changes_num{0}, params_{initParams(params)}, vamana_idx{nullptr} {}
 
     ~SVSIndex() = default;
 
