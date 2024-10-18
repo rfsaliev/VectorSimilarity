@@ -294,28 +294,11 @@ public:
         auto index_impl = get_vamana(); //->get_impl()->get_impl();
         auto my_datum = index_impl->get_datum(label);
 
-        auto build_adaptor = svs::index::vamana::extensions::build_adaptor(index_impl->view_data(), index_impl->distance_function());
-        auto dist_f = build_adaptor.general_distance();
-        auto query_datum = std::span{reinterpret_cast<const DataType *>(vector_data), params_.dim};
-        // FIXME(rfsaliev):
-        // Changes required in svs/include/svs/quantization/lvq/vectors.h:
-        /*
-        template <typename Distance> class DecompressionAdaptor {
-        public:
-        ...
-            // Distance API.
-            template <LVQCompressedVector Left> void fix_argument(Left left) {
-                decompress(decompressed_, left, inner_.get_centroid(left.get_selector()).data());
-                inner_.fix_argument(view());
-            }
+        auto dist_f = svs::index::vamana::extensions::single_search_setup(
+            index_impl->view_data(),
+            index_impl->distance_function());
 
-        +    void fix_argument(const std::span<const float>& left) {
-        +        decompressed_.resize(left.size());
-        +        decompressed_.assign(left.begin(), left.end());
-        +        inner_.fix_argument(view());
-        +    }
-        ...
-        */
+        auto query_datum = std::span{reinterpret_cast<const DataType *>(vector_data), params_.dim};
 
         svs::distance::maybe_fix_argument(dist_f, query_datum);
 
