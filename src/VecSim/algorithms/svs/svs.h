@@ -327,8 +327,6 @@ public:
         return res;
     }
 
-    void fitMemory() override {};
-
     // From VecSimIndexAbstract
 private:
     // TODO(rfsaliev) modify/remove below
