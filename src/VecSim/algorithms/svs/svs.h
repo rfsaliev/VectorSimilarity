@@ -29,6 +29,9 @@
 #include "VecSim/algorithms/svs/svs_utils.h"
 #include "VecSim/algorithms/svs/svs_batch_iterator.h"
 
+// QUANT_BITS == 0 means no LVQ
+#define QUANT_BITS 8
+
 template <typename DataType, size_t QuantBits, class Enable = void>
 struct SVSStorageTraits {
     using allocator_type = details::SVSAllocator<DataType>;
@@ -36,17 +39,22 @@ struct SVSStorageTraits {
     using index_storage_type = svs::data::BlockedData<DataType, svs::Dynamic, allocator_type>;
 
     template <svs::data::ImmutableMemoryDataset Dataset>
-    static index_storage_type create_storage(const Dataset& data, size_t block_size, std::shared_ptr<VecSimAllocator> allocator) {
+    static index_storage_type create_storage(const Dataset &data, size_t block_size,
+                                             std::shared_ptr<VecSimAllocator> allocator) {
         const auto dim = data.dimensions();
         const auto size = data.size();
-        auto svs_bs = svs::lib::prevpow2(block_size * dim * sizeof(DataType));
+        auto svs_bs = details::SVSBlockSize(block_size, element_size(dim));
         allocator_type data_allocator{std::move(allocator)};
-        blocked_type   blocked_alloc{{svs_bs}, data_allocator};
+        blocked_type blocked_alloc{{svs_bs}, data_allocator};
         index_storage_type init_data{size, dim, blocked_alloc};
         for (const auto &i : data.eachindex()) {
             init_data.set_datum(i, data.get_datum(i));
         }
         return init_data;
+    }
+
+    static constexpr size_t element_size(size_t dims, size_t /*alignment*/ = 0) {
+        return dims * sizeof(DataType);
     }
 };
 
@@ -59,42 +67,64 @@ template <typename DataType, size_t QuantBits>
 struct SVSStorageTraits<DataType, QuantBits, std::enable_if_t<(QuantBits > 0)>> {
     using allocator_type = details::SVSAllocator<std::byte>;
     using blocked_type = svs::data::Blocked<allocator_type>;
-    using index_storage_type = svs::quantization::lvq::LVQDataset<QuantBits, 0, svs::Dynamic, svs::quantization::lvq::Sequential, blocked_type>;
+    using index_storage_type =
+        svs::quantization::lvq::LVQDataset<QuantBits, 0, svs::Dynamic,
+                                           svs::quantization::lvq::Sequential, blocked_type>;
 
     template <svs::data::ImmutableMemoryDataset Dataset>
-    static index_storage_type create_storage(const Dataset& data, size_t block_size, std::shared_ptr<VecSimAllocator> allocator) {
+    static index_storage_type create_storage(const Dataset &data, size_t block_size,
+                                             std::shared_ptr<VecSimAllocator> allocator) {
         const auto dim = data.dimensions();
-        auto svs_bs = svs::lib::prevpow2(block_size * dim * sizeof(std::byte));
-        allocator_type data_allocator{std::move(allocator)};
-        blocked_type   blocked_alloc{{svs_bs}, data_allocator};
+        auto svs_bs = details::SVSBlockSize(block_size, element_size(dim));
 
-        // FIXME(rfsaliev) svs::quantization::lvq::VectorBias to be fixed to support ConstSimpleDataView here:
+        allocator_type data_allocator{std::move(allocator)};
+        blocked_type blocked_alloc{{svs_bs}, data_allocator};
+
+        // FIXME(rfsaliev) svs::quantization::lvq::VectorBias to be fixed to support
+        // ConstSimpleDataView here:
         /*
         --- a/include/svs/quantization/lvq/ops.h
         +++ b/include/svs/quantization/lvq/ops.h
         @@ -169,7 +169,7 @@ template <typename T> class ScaleShift {
         struct VectorBias : public DatasetPreOpBase {
             static std::string name() { return "preop-vector-bias"; }
-        
+
         -    template <typename T> using element_type_t = typename T::element_type;
         +    template <typename T> using element_type_t = std::remove_cv_t<typename T::element_type>;
             using misc_type = std::vector<double>;
-        
+
             ///
         */
         return index_storage_type::compress(data, blocked_alloc);
     }
+
+    static constexpr size_t element_size(size_t dims, size_t alignment = 0) {
+        using primary_type = typename index_storage_type::primary_type;
+        using layout_type = typename primary_type::helper_type;
+        using layout_dims_type = svs::lib::MaybeStatic<index_storage_type::extent>;
+        const auto layout_dims = layout_dims_type{dims};
+        return primary_type::compute_data_dimensions(layout_type{layout_dims}, alignment);
+    }
 };
 #endif
+
+template <size_t QuantBits = QUANT_BITS>
+constexpr size_t SVSIndexVectorSize(VecSimType data_type, size_t dims, size_t alignment = 0) {
+    switch (data_type) {
+        case VecSimType_FLOAT32:
+            return SVSStorageTraits<float, QuantBits>::element_size(dims, alignment);
+        default:
+            // If we got here something is wrong.
+            assert(false && "Unsupported data type");
+            return 0;
+    }
+}
 
 class SVSIndexBase : public VecSimIndexInterface {
 public:
     using VecSimIndexInterface::VecSimIndexInterface;
     virtual int addVectors(const void *vectors_data, const labelType *labels, size_t n) = 0;
 };
-
-// QUANT_BITS == 0 means no LVQ
-#define QUANT_BITS 8
 
 // TODO(rfsaliev)
 //  * wrap vamana_idx into a handler with init()/get() to avoid improper use risk

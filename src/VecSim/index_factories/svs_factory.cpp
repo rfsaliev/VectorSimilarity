@@ -60,7 +60,7 @@ size_t EstimateElementSize(const SVSParams *params) {
     // FIXME(rfsaliev): fix SVS graph construction with custom allocator
     // + size_of_graph_node(labelType)
 
-    return params->dim * VecSimType_sizeof(params->type); // vector data
+    return SVSIndexVectorSize(params->type, params->dim);
 };
 
 size_t EstimateInitialSize(const SVSParams *params) {

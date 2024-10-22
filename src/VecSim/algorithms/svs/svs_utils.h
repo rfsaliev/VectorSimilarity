@@ -118,4 +118,13 @@ joinSearchParams(svs::index::vamana::VamanaSearchParameters &&sp,
     return std::move(sp);
 }
 
+inline svs::lib::PowerOfTwo SVSBlockSize(size_t bs, size_t elem_size) {
+    auto svs_bs = svs::lib::prevpow2(bs * elem_size);
+    // block size should not be less than element size
+    while (svs_bs.value() < elem_size) {
+        svs_bs = svs::lib::PowerOfTwo{svs_bs.raw() + 1};
+    }
+    return svs_bs;
+}
+
 } // namespace details
