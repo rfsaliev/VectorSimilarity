@@ -128,3 +128,29 @@ inline svs::lib::PowerOfTwo SVSBlockSize(size_t bs, size_t elem_size) {
 }
 
 } // namespace details
+
+template <typename DataType, size_t QuantBits, class Enable = void>
+struct SVSStorageTraits {
+    using allocator_type = details::SVSAllocator<DataType>;
+    using blocked_type = svs::data::Blocked<allocator_type>;
+    using index_storage_type = svs::data::BlockedData<DataType, svs::Dynamic, allocator_type>;
+
+    template <svs::data::ImmutableMemoryDataset Dataset>
+    static index_storage_type create_storage(const Dataset &data, size_t block_size,
+                                             std::shared_ptr<VecSimAllocator> allocator) {
+        const auto dim = data.dimensions();
+        const auto size = data.size();
+        auto svs_bs = details::SVSBlockSize(block_size, element_size(dim));
+        allocator_type data_allocator{std::move(allocator)};
+        blocked_type blocked_alloc{{svs_bs}, data_allocator};
+        index_storage_type init_data{size, dim, blocked_alloc};
+        for (const auto &i : data.eachindex()) {
+            init_data.set_datum(i, data.get_datum(i));
+        }
+        return init_data;
+    }
+
+    static constexpr size_t element_size(size_t dims, size_t /*alignment*/ = 0) {
+        return dims * sizeof(DataType);
+    }
+};

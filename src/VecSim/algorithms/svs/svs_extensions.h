@@ -9,9 +9,6 @@
 #pragma once
 #include "VecSim/algorithms/svs/svs_utils.h"
 
-template <typename DataType, size_t QuantBits, class Enable = void>
-struct SVSStorageTraits;
-
 // TODO(rfsaliev) to be detected and defined via cmake config
 #define LVQ_EXISTS 1
 
