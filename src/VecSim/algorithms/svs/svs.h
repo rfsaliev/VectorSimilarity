@@ -127,7 +127,10 @@ protected:
 
     int addVectorsImpl(const DataType *vectors_data, const labelType *labels, size_t n) {
         std::span<const labelType> ids(labels, n);
-        auto points = svs::data::ConstSimpleDataView<DataType>{vectors_data, n, params_.dim};
+        // FIXME(rfsaliev) const_cast below workarounds LVQ VectorBias definition issue
+        // explained in svs_extensions.h
+        auto remove_const_vectors_data = const_cast<DataType*>(vectors_data);
+        auto points = svs::data::SimpleDataView<DataType>{remove_const_vectors_data, n, params_.dim};
 
         // construct SVS index for first rows
         if (!vamana_idx) {
@@ -352,6 +355,10 @@ public:
             res ? (initial_check ? HYBRID_ADHOC_BF : HYBRID_BATCHES_TO_ADHOC_BF) : HYBRID_BATCHES;
         return res;
     }
+
+#ifdef BUILD_TESTS
+    virtual void fitMemory() {};
+#endif
 
     // From VecSimIndexAbstract
 private:
