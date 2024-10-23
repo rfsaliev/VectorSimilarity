@@ -5,9 +5,32 @@
 
 namespace SVSFactory {
 
+template <typename DataType, typename MetricType, size_t QuantBits>
+VecSimIndex *NewIndex(const SVSParams *svsParams,
+                      const std::shared_ptr<VecSimAllocator> &allocator) {
+    return new (allocator) SVSIndex<DataType, MetricType, QuantBits>(svsParams, allocator);
+}
+
+template <typename DataType, typename MetricType>
+VecSimIndex *NewIndex(const SVSParams *svsParams,
+                      const std::shared_ptr<VecSimAllocator> &allocator) {
+    switch (svsParams->quantBits) {
+    case 0:
+        return NewIndex<DataType, MetricType, 0>(svsParams, allocator);
+    case 8:
+        return NewIndex<DataType, MetricType, 8>(svsParams, allocator);
+    case 4:
+        return NewIndex<DataType, MetricType, 4>(svsParams, allocator);
+    default:
+        // If we got here something is wrong.
+        assert(false && "Unsupported quantization mode");
+        return NULL;
+    }
+}
+
 template <typename DataType>
 VecSimIndex *NewIndex(const SVSParams *svsParams,
-                      const std::shared_ptr<VecSimAllocator>& allocator) {
+                      const std::shared_ptr<VecSimAllocator> &allocator) {
     /* In fact, there is no need of NewAbstractInitParams for the Vamana/SVS algorithm.
      * However, the established pattern in VecSim is to inherit all index classes
      * from an abstract VecSimIndexAbstract class.
@@ -16,17 +39,14 @@ VecSimIndex *NewIndex(const SVSParams *svsParams,
      */
     switch (svsParams->metric) {
     case VecSimMetric_L2:
-        return new (allocator)
-            SVSIndex<DataType, svs::distance::DistanceL2>(svsParams, allocator);
+        return NewIndex<DataType, svs::distance::DistanceL2>(svsParams, allocator);
     case VecSimMetric_IP:
-        return new (allocator)
-            SVSIndex<DataType, svs::distance::DistanceIP>(svsParams, allocator);
+        return NewIndex<DataType, svs::distance::DistanceIP>(svsParams, allocator);
     case VecSimMetric_Cosine:
-        return new (allocator)
-            // FIXME(rfsaliev) To be fixed in SVS:
-            // is not defined in svs/include/svs/quantization/lvq/vectors.h :
-            // template <> struct BiasedDistance<distance::DistanceCosineSimilarity>
-            SVSIndex<DataType, svs::distance::DistanceIP>(svsParams, allocator);
+        // FIXME(rfsaliev) To be fixed in SVS:
+        // is not defined in svs/include/svs/quantization/lvq/vectors.h :
+        // template <> struct BiasedDistance<distance::DistanceCosineSimilarity>
+        return NewIndex<DataType, svs::distance::DistanceIP>(svsParams, allocator);
     default:
         // If we got here something is wrong.
         assert(false && "Unknown distance metric type");
@@ -48,10 +68,40 @@ VecSimIndex *NewIndex(const VecSimParams *params) {
     };
 }
 
-// VecSimIndex *NewIndex(const SVSParams *svsparams) {
-//	VecSimParams params = {.algoParams{.svsParams = SVSParams{*svsparams}}};
-//	return NewIndex(&params);
-// }
+namespace {
+template <typename DataType, size_t QuantBits>
+constexpr size_t SVSIndexVectorSize(size_t dims, size_t alignment = 0) {
+    return SVSStorageTraits<DataType, QuantBits>::element_size(dims, alignment);
+}
+
+template <typename DataType>
+size_t SVSIndexVectorSize(size_t quant_bits, size_t dims, size_t alignment = 0) {
+    switch (quant_bits) {
+    case 0:
+        return SVSIndexVectorSize<DataType, 0>(dims, alignment);
+    case 8:
+        return SVSIndexVectorSize<DataType, 8>(dims, alignment);
+    case 4:
+        return SVSIndexVectorSize<DataType, 4>(dims, alignment);
+    default:
+        // If we got here something is wrong.
+        assert(false && "Unsupported quantization mode");
+        return 0;
+    }
+}
+
+size_t SVSIndexVectorSize(VecSimType data_type, size_t quant_bits, size_t dims,
+                          size_t alignment = 0) {
+    switch (data_type) {
+    case VecSimType_FLOAT32:
+        return SVSIndexVectorSize<float>(quant_bits, dims, alignment);
+    default:
+        // If we got here something is wrong.
+        assert(false && "Unsupported data type");
+        return 0;
+    }
+}
+} // namespace
 
 size_t EstimateElementSize(const SVSParams *params) {
     // FIXME(rfsaliev): custom allocator for svs::index::MutableVamanaIndex::translator_
@@ -60,16 +110,20 @@ size_t EstimateElementSize(const SVSParams *params) {
     // FIXME(rfsaliev): fix SVS graph construction with custom allocator
     // + size_of_graph_node(labelType)
 
-    return SVSIndexVectorSize(params->type, params->dim);
+    return SVSIndexVectorSize(params->type, params->quantBits, params->dim);
 };
 
 size_t EstimateInitialSize(const SVSParams *params) {
     size_t allocations_overhead = VecSimAllocator::getAllocationOverheadSize();
     size_t est = sizeof(VecSimAllocator) + allocations_overhead;
 
-    // Assume FLOAT32, Single
-    // using T = uint32_t;
-    est += sizeof(SVSIndex<float, svs::distance::DistanceL2>);
+    // Assume FLOAT32
+    // Assume quantBits>0 cases have same sizes
+    size_t index_size = (params->quantBits == 0)
+                            ? sizeof(SVSIndex<float, svs::distance::DistanceL2, 0>)
+                            : sizeof(SVSIndex<float, svs::distance::DistanceL2, 8>);
+
+    est += index_size;
 
     return est;
 }

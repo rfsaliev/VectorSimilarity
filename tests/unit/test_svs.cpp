@@ -21,17 +21,26 @@ public:
 protected:
     VecSimIndex *CreateNewIndex(SVSParams &params) {
         // is_multi = false by default.
+        params.quantBits = index_type_t::get_quant_bits();
         return test_utils::CreateNewIndex(params, index_type_t::get_index_type());
     }
 
-    SVSIndexBase *CastToSVS(VecSimIndex *index) {
-        return static_cast<SVSIndexBase*>(index);
-    }
+    SVSIndexBase *CastToSVS(VecSimIndex *index) { return static_cast<SVSIndexBase *>(index); }
 };
 
-// DataTypeSet, TEST_DATA_T and TEST_DIST_T are defined in test_utils.h
+// TEST_DATA_T and TEST_DIST_T are defined in test_utils.h
 
-TYPED_TEST_SUITE(SVSTest, DataTypeSet);
+template <VecSimType type, typename DataType, size_t quantBits>
+struct SVSIndexType {
+    static constexpr VecSimType get_index_type() { return type; }
+    static constexpr size_t get_quant_bits() { return quantBits; }
+    typedef DataType data_t;
+};
+
+using SVSDataTypeSet = ::testing::Types<SVSIndexType<VecSimType_FLOAT32, float, 0>,
+                                        SVSIndexType<VecSimType_FLOAT32, float, 8>>;
+
+TYPED_TEST_SUITE(SVSTest, SVSDataTypeSet);
 
 TYPED_TEST(SVSTest, svs_vector_add_test) {
 
@@ -244,21 +253,21 @@ TYPED_TEST(SVSTest, svs_get_distance) {
     distances = {0, 0.3583844006061554, 0.1791922003030777, 23.739208221435547};
     for (size_t i = 0; i < n; i++) {
         dist = VecSimIndex_GetDistanceFrom_Unsafe(index[VecSimMetric_L2], i + 1, query);
-        EXPECT_NEAR(dist, distances[i], std::abs(distances[i]*1e-3));
+        EXPECT_NEAR(dist, distances[i], std::abs(distances[i] * 1e-3));
     }
 
     // VecSimMetric_IP
     distances = {-18.73921012878418, -16.0794677734375, -17.409339904785156, 1};
     for (size_t i = 0; i < n; i++) {
         dist = VecSimIndex_GetDistanceFrom_Unsafe(index[VecSimMetric_IP], i + 1, query);
-        EXPECT_NEAR(dist, distances[i], std::abs(distances[i]*1e-3));
+        EXPECT_NEAR(dist, distances[i], std::abs(distances[i] * 1e-3));
     }
 
     // VecSimMetric_Cosine
     distances = {5.9604644775390625e-08, 5.9604644775390625e-08, 0.0025991201400756836, 1};
     for (size_t i = 0; i < n; i++) {
         dist = VecSimIndex_GetDistanceFrom_Unsafe(index[VecSimMetric_Cosine], i + 1, norm);
-        EXPECT_NEAR(dist, distances[i], std::abs(distances[i]*1e-3));
+        EXPECT_NEAR(dist, distances[i], std::abs(distances[i] * 1e-3));
     }
 
     // Bad values

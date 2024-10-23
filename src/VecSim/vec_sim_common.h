@@ -142,6 +142,7 @@ typedef struct {
     size_t blockSize;
 
     /* SVS-Vamana specifics */
+    size_t quantBits;
     float alpha;
     size_t graph_max_degree;
     size_t window_size;
