@@ -5,22 +5,31 @@
 
 namespace SVSFactory {
 
+namespace {
+bool FactoryLog(void *ctx, const char *lvl, const char *msg) {
+    if (!VecSimIndexInterface::logCallback) {
+        return false;
+    }
+    VecSimIndexInterface::logCallback(ctx, lvl, msg);
+    return true;
+}
+
 template <typename DataType, typename MetricType, size_t QuantBits>
-VecSimIndex *NewIndex(const SVSParams *svsParams,
-                      const std::shared_ptr<VecSimAllocator> &allocator) {
+VecSimIndex *NewIndexImpl(const SVSParams *svsParams,
+                          const std::shared_ptr<VecSimAllocator> &allocator) {
     return new (allocator) SVSIndex<DataType, MetricType, QuantBits>(svsParams, allocator);
 }
 
 template <typename DataType, typename MetricType>
-VecSimIndex *NewIndex(const SVSParams *svsParams,
-                      const std::shared_ptr<VecSimAllocator> &allocator) {
+VecSimIndex *NewIndexImpl(const SVSParams *svsParams,
+                          const std::shared_ptr<VecSimAllocator> &allocator) {
     switch (svsParams->quantBits) {
     case 0:
-        return NewIndex<DataType, MetricType, 0>(svsParams, allocator);
+        return NewIndexImpl<DataType, MetricType, 0>(svsParams, allocator);
     case 8:
-        return NewIndex<DataType, MetricType, 8>(svsParams, allocator);
+        return NewIndexImpl<DataType, MetricType, 8>(svsParams, allocator);
     case 4:
-        return NewIndex<DataType, MetricType, 4>(svsParams, allocator);
+        return NewIndexImpl<DataType, MetricType, 4>(svsParams, allocator);
     default:
         // If we got here something is wrong.
         assert(false && "Unsupported quantization mode");
@@ -29,8 +38,8 @@ VecSimIndex *NewIndex(const SVSParams *svsParams,
 }
 
 template <typename DataType>
-VecSimIndex *NewIndex(const SVSParams *svsParams,
-                      const std::shared_ptr<VecSimAllocator> &allocator) {
+VecSimIndex *NewIndexImpl(const SVSParams *svsParams,
+                          const std::shared_ptr<VecSimAllocator> &allocator) {
     /* In fact, there is no need of NewAbstractInitParams for the Vamana/SVS algorithm.
      * However, the established pattern in VecSim is to inherit all index classes
      * from an abstract VecSimIndexAbstract class.
@@ -39,14 +48,14 @@ VecSimIndex *NewIndex(const SVSParams *svsParams,
      */
     switch (svsParams->metric) {
     case VecSimMetric_L2:
-        return NewIndex<DataType, svs::distance::DistanceL2>(svsParams, allocator);
+        return NewIndexImpl<DataType, svs::distance::DistanceL2>(svsParams, allocator);
     case VecSimMetric_IP:
-        return NewIndex<DataType, svs::distance::DistanceIP>(svsParams, allocator);
+        return NewIndexImpl<DataType, svs::distance::DistanceIP>(svsParams, allocator);
     case VecSimMetric_Cosine:
         // FIXME(rfsaliev) To be fixed in SVS:
         // is not defined in svs/include/svs/quantization/lvq/vectors.h :
         // template <> struct BiasedDistance<distance::DistanceCosineSimilarity>
-        return NewIndex<DataType, svs::distance::DistanceIP>(svsParams, allocator);
+        return NewIndexImpl<DataType, svs::distance::DistanceIP>(svsParams, allocator);
     default:
         // If we got here something is wrong.
         assert(false && "Unknown distance metric type");
@@ -54,21 +63,20 @@ VecSimIndex *NewIndex(const SVSParams *svsParams,
     }
 }
 
-VecSimIndex *NewIndex(const VecSimParams *params) {
+VecSimIndex *NewIndexImpl(const VecSimParams *params) {
     const SVSParams *svsParams = &params->algoParams.svsParams;
     auto allocator = VecSimAllocator::newVecsimAllocator();
-
     switch (svsParams->type) {
     case VecSimType_FLOAT32:
-        return NewIndex<float>(svsParams, allocator);
+        return NewIndexImpl<float>(svsParams, allocator);
     default:
         // If we got here something is wrong.
-        assert(false && "Unsupported data type");
+        FactoryLog(params->logCtx, VecSimCommonStrings::LOG_WARNING_STRING,
+                   "SVSIndex: Unsupported data type");
         return NULL;
     };
 }
 
-namespace {
 template <typename DataType, size_t QuantBits>
 constexpr size_t SVSIndexVectorSize(size_t dims, size_t alignment = 0) {
     return SVSStorageTraits<DataType, QuantBits>::element_size(dims, alignment);
@@ -102,6 +110,11 @@ size_t SVSIndexVectorSize(VecSimType data_type, size_t quant_bits, size_t dims,
     }
 }
 } // namespace
+
+VecSimIndex *NewIndex(const VecSimParams *params) {
+    FactoryLog(params->logCtx, VecSimCommonStrings::LOG_NOTICE_STRING, "Creating index: SVS");
+    return NewIndexImpl(params);
+}
 
 size_t EstimateElementSize(const SVSParams *params) {
     // FIXME(rfsaliev): custom allocator for svs::index::MutableVamanaIndex::translator_
