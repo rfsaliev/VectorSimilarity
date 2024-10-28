@@ -8,7 +8,7 @@
 
 /* TODO clean the includes */
 #pragma once
-#include "VecSim/vec_sim_interface.h"
+#include "VecSim/vec_sim_index.h"
 #include "VecSim/spaces/spaces.h"
 #include "VecSim/utils/vecsim_stl.h"
 #include "VecSim/index_factories/brute_force_factory.h"
@@ -30,20 +30,19 @@
 #include "VecSim/algorithms/svs/svs_batch_iterator.h"
 #include "VecSim/algorithms/svs/svs_extensions.h"
 
-class SVSIndexBase : public VecSimIndexInterface {
-public:
-    using VecSimIndexInterface::VecSimIndexInterface;
+struct SVSIndexBase {
+    virtual ~SVSIndexBase() = default;
     virtual int addVectors(const void *vectors_data, const labelType *labels, size_t n) = 0;
 };
 
 // TODO(rfsaliev)
 //  * wrap vamana_idx into a handler with init()/get() to avoid improper use risk
 template <typename DataType, typename DistType, size_t QuantBits>
-class SVSIndex : public SVSIndexBase {
+class SVSIndex : public VecSimIndexAbstract<DataType, float>, public SVSIndexBase {
 protected:
     using data_type = DataType;
     using dist_type = DistType;
-    using Base = SVSIndexBase;
+    using Base = VecSimIndexAbstract<DataType, DataType>;
 
     using storage_traits_t = SVSStorageTraits<DataType, QuantBits>;
     using index_storage_type = typename storage_traits_t::index_storage_type;
@@ -60,25 +59,38 @@ protected:
 
     size_t num_threads() const { return params_.num_threads; }
 
-    static constexpr SVSParams initParams(const SVSParams *hint) {
+    static constexpr SVSParams initParams(const SVSParams &hint) {
         // clang-format off
         return SVSParams {
-            .type = hint->type,
-            .dim = hint->dim,
-            .metric = hint->metric,
+            .type = hint.type,
+            .dim = hint.dim,
+            .metric = hint.metric,
             .multi = false,
-            .initialCapacity = hint->initialCapacity,
-            .blockSize = hint->blockSize ? hint->blockSize : DEFAULT_BLOCK_SIZE,
+            .initialCapacity = hint.initialCapacity,
+            .blockSize = hint.blockSize ? hint.blockSize : DEFAULT_BLOCK_SIZE,
 
-            .alpha = hint->alpha ? hint->alpha : (hint->metric == VecSimMetric_L2 ? 1.2f : 0.9f),
-            .graph_max_degree = hint->graph_max_degree ? hint->graph_max_degree : 32,
-            .window_size = hint->window_size ? hint->window_size : 64,
-            .max_candidate_pool_size = hint->max_candidate_pool_size ? hint->max_candidate_pool_size : 80,
-            .prune_to = hint->prune_to ? hint->prune_to : 32,
-            .use_full_search_history = hint->use_full_search_history ? hint->use_full_search_history : true,
-            .num_threads = hint->num_threads ? hint->num_threads : std::thread::hardware_concurrency()
+            .alpha = hint.alpha ? hint.alpha : (hint.metric == VecSimMetric_L2 ? 1.2f : 0.9f),
+            .graph_max_degree = hint.graph_max_degree ? hint.graph_max_degree : 32,
+            .window_size = hint.window_size ? hint.window_size : 64,
+            .max_candidate_pool_size = hint.max_candidate_pool_size ? hint.max_candidate_pool_size : 80,
+            .prune_to = hint.prune_to ? hint.prune_to : 32,
+            .use_full_search_history = hint.use_full_search_history ? hint.use_full_search_history : true,
+            .num_threads = hint.num_threads ? hint.num_threads : std::thread::hardware_concurrency()
         };
         // clang-format on
+    }
+
+    static AbstractIndexInitParams InitBaseParams(const VecSimParams *params,
+                                                  std::shared_ptr<VecSimAllocator> allocator) {
+        assert(params && params->algo == VecSimAlgo_SVS);
+        auto &svsParams = params->algoParams.svsParams;
+        return {.allocator = std::move(allocator),
+                .dim = svsParams.dim,
+                .vecType = svsParams.type,
+                .metric = svsParams.metric,
+                .blockSize = svsParams.blockSize,
+                .multi = false,
+                .logCtx = params->logCtx};
     }
 
     static svs::index::vamana::VamanaBuildParameters
@@ -103,8 +115,9 @@ protected:
         std::span<const labelType> ids(labels, n);
         // FIXME(rfsaliev) const_cast below workarounds LVQ VectorBias definition issue
         // explained in svs_extensions.h
-        auto remove_const_vectors_data = const_cast<DataType*>(vectors_data);
-        auto points = svs::data::SimpleDataView<DataType>{remove_const_vectors_data, n, params_.dim};
+        auto remove_const_vectors_data = const_cast<DataType *>(vectors_data);
+        auto points =
+            svs::data::SimpleDataView<DataType>{remove_const_vectors_data, n, params_.dim};
 
         // construct SVS index for first rows
         if (!vamana_idx) {
@@ -160,8 +173,9 @@ protected:
     }
 
 public:
-    SVSIndex(const SVSParams *params, std::shared_ptr<VecSimAllocator> allocator)
-        : Base{allocator}, changes_num{0}, params_{initParams(params)}, vamana_idx{nullptr} {}
+    SVSIndex(const VecSimParams *params, std::shared_ptr<VecSimAllocator> allocator)
+        : Base{InitBaseParams(params, std::move(allocator))}, changes_num{0},
+          params_{initParams(params->algoParams.svsParams)}, vamana_idx{nullptr} {}
 
     ~SVSIndex() = default;
 
@@ -172,23 +186,17 @@ public:
     size_t indexLabelCount() const override { return indexSize(); }
 
     VecSimIndexBasicInfo basicInfo() const override {
-        VecSimIndexBasicInfo info{.algo = VecSimAlgo_SVS,
-                                  .blockSize = params_.blockSize,
-                                  .metric = params_.metric,
-                                  .type = params_.type,
-                                  .isMulti = false,
-                                  .dim = params_.dim,
-                                  .isTiered = false};
+        VecSimIndexBasicInfo info = this->getBasicInfo();
+        info.algo = VecSimAlgo_SVS;
+        info.isTiered = false;
         return info;
     }
 
     VecSimIndexInfo info() const override {
         VecSimIndexInfo info;
-        info.commonInfo = CommonInfo{.basicInfo = this->basicInfo(),
-                                     .indexSize = this->indexSize(),
-                                     .indexLabelCount = this->indexLabelCount(),
-                                     .memory = this->getAllocationSize(),
-                                     .lastMode = this->lastMode};
+        info.commonInfo = this->getCommonInfo();
+        info.commonInfo.basicInfo.algo = VecSimAlgo_SVS;
+        info.commonInfo.basicInfo.isTiered = false;
         return info;
     }
 
@@ -271,7 +279,7 @@ public:
     }
 
     VecSimQueryReply *rangeQuery(const void *queryBlob, double radius,
-                                 VecSimQueryParams *queryParams) const {
+                                 VecSimQueryParams *queryParams) const override {
         auto rep = new VecSimQueryReply(this->allocator);
         this->lastMode = RANGE_QUERY;
         if (radius == 0 || this->indexSize() == 0) {
@@ -333,122 +341,4 @@ public:
 #ifdef BUILD_TESTS
     virtual void fitMemory() {};
 #endif
-
-    // From VecSimIndexAbstract
-private:
-    // TODO(rfsaliev) modify/remove below
-    size_t alignment() const { return 0; }
-    size_t dataSize() const { return params_.dim * sizeof(DataType); }
-    mutable VecSearchMode lastMode =
-        EMPTY_MODE; // The last search mode in RediSearch (used for debug/testing).
-    spaces::normalizeVector_f<DataType> normalize_func =
-        spaces::GetNormalizeFunc<DataType>(); // A pointer to a normalization function of specific
-                                              // type.
-
-    void setLastSearchMode(VecSearchMode mode) override { this->lastMode = mode; }
-
-    // Adds all common info to the info iterator, besides the block size (currently 8 fields).
-    void addCommonInfoToIterator(VecSimInfoIterator *infoIterator, const CommonInfo &info) const {
-        infoIterator->addInfoField(VecSim_InfoField{
-            .fieldName = VecSimCommonStrings::TYPE_STRING,
-            .fieldType = INFOFIELD_STRING,
-            .fieldValue = {FieldValue{.stringValue = VecSimType_ToString(info.basicInfo.type)}}});
-        infoIterator->addInfoField(
-            VecSim_InfoField{.fieldName = VecSimCommonStrings::DIMENSION_STRING,
-                             .fieldType = INFOFIELD_UINT64,
-                             .fieldValue = {FieldValue{.uintegerValue = info.basicInfo.dim}}});
-        infoIterator->addInfoField(
-            VecSim_InfoField{.fieldName = VecSimCommonStrings::METRIC_STRING,
-                             .fieldType = INFOFIELD_STRING,
-                             .fieldValue = {FieldValue{
-                                 .stringValue = VecSimMetric_ToString(info.basicInfo.metric)}}});
-        infoIterator->addInfoField(
-            VecSim_InfoField{.fieldName = VecSimCommonStrings::IS_MULTI_STRING,
-                             .fieldType = INFOFIELD_UINT64,
-                             .fieldValue = {FieldValue{.uintegerValue = info.basicInfo.isMulti}}});
-        infoIterator->addInfoField(
-            VecSim_InfoField{.fieldName = VecSimCommonStrings::INDEX_SIZE_STRING,
-                             .fieldType = INFOFIELD_UINT64,
-                             .fieldValue = {FieldValue{.uintegerValue = info.indexSize}}});
-        infoIterator->addInfoField(
-            VecSim_InfoField{.fieldName = VecSimCommonStrings::INDEX_LABEL_COUNT_STRING,
-                             .fieldType = INFOFIELD_UINT64,
-                             .fieldValue = {FieldValue{.uintegerValue = info.indexLabelCount}}});
-        infoIterator->addInfoField(
-            VecSim_InfoField{.fieldName = VecSimCommonStrings::MEMORY_STRING,
-                             .fieldType = INFOFIELD_UINT64,
-                             .fieldValue = {FieldValue{.uintegerValue = info.memory}}});
-        infoIterator->addInfoField(VecSim_InfoField{
-            .fieldName = VecSimCommonStrings::SEARCH_MODE_STRING,
-            .fieldType = INFOFIELD_STRING,
-            .fieldValue = {FieldValue{.stringValue = VecSimSearchMode_ToString(info.lastMode)}}});
-    }
-
-    const void *processBlob(const void *original_blob, void *aligned_mem) const {
-        void *processed_blob;
-        // if the blob is not aligned, or we need to normalize, we copy it
-        if ((this->alignment() && (uintptr_t)original_blob % this->alignment()) ||
-            this->params_.metric == VecSimMetric_Cosine) {
-            memcpy(aligned_mem, original_blob, this->dataSize());
-            processed_blob = aligned_mem;
-        } else {
-            processed_blob = (void *)original_blob;
-        }
-
-        // if the metric is cosine, we need to normalize
-        if (this->params_.metric == VecSimMetric_Cosine) {
-            // normalize the copy in place
-            normalize_func(processed_blob, this->params_.dim);
-        }
-
-        return processed_blob;
-    }
-
-    virtual int addVectorWrapper(const void *blob, labelType label, void *auxiliaryCtx) override {
-        auto aligned_mem =
-            this->getAllocator()->allocate_aligned_unique(this->dataSize(), this->alignment());
-        const void *processed_blob = processBlob(blob, aligned_mem.get());
-
-        return this->addVector(processed_blob, label, auxiliaryCtx);
-    }
-
-    virtual VecSimQueryReply *topKQueryWrapper(const void *queryBlob, size_t k,
-                                               VecSimQueryParams *queryParams) const override {
-        auto aligned_mem =
-            this->getAllocator()->allocate_aligned_unique(this->dataSize(), this->alignment());
-        const void *processed_blob = processBlob(queryBlob, aligned_mem.get());
-
-        return this->topKQuery(processed_blob, k, queryParams);
-    }
-
-    virtual VecSimQueryReply *rangeQueryWrapper(const void *queryBlob, double radius,
-                                                VecSimQueryParams *queryParams,
-                                                VecSimQueryReply_Order order) const override {
-        auto aligned_mem =
-            this->getAllocator()->allocate_aligned_unique(this->dataSize(), this->alignment());
-        const void *processed_blob = processBlob(queryBlob, aligned_mem.get());
-
-        return this->rangeQuery(processed_blob, radius, queryParams, order);
-    }
-
-    VecSimQueryReply *rangeQuery(const void *queryBlob, double radius,
-                                 VecSimQueryParams *queryParams,
-                                 VecSimQueryReply_Order order) const override {
-        auto results = rangeQuery(queryBlob, radius, queryParams);
-        sort_results(results, order);
-        return results;
-    }
-
-    virtual VecSimBatchIterator *
-    newBatchIteratorWrapper(const void *queryBlob, VecSimQueryParams *queryParams) const override {
-        auto aligned_mem =
-            this->getAllocator()->allocate_aligned_unique(this->dataSize(), this->alignment());
-        const void *processed_blob = processBlob(queryBlob, aligned_mem.get());
-
-        return this->newBatchIterator(processed_blob, queryParams);
-    }
-
-    void runGC() override {}              // Do nothing, relevant for tiered index only.
-    void acquireSharedLocks() override {} // Do nothing, relevant for tiered index only.
-    void releaseSharedLocks() override {} // Do nothing, relevant for tiered index only.
 };

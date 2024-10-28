@@ -15,60 +15,53 @@ bool FactoryLog(void *ctx, const char *lvl, const char *msg) {
 }
 
 template <typename DataType, typename MetricType, size_t QuantBits>
-VecSimIndex *NewIndexImpl(const SVSParams *svsParams,
-                          const std::shared_ptr<VecSimAllocator> &allocator) {
-    return new (allocator) SVSIndex<DataType, MetricType, QuantBits>(svsParams, allocator);
+VecSimIndex *NewIndexImpl(const VecSimParams *params) {
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+    return new (allocator) SVSIndex<DataType, MetricType, QuantBits>(params, allocator);
 }
 
 template <typename DataType, typename MetricType>
-VecSimIndex *NewIndexImpl(const SVSParams *svsParams,
-                          const std::shared_ptr<VecSimAllocator> &allocator) {
-    switch (svsParams->quantBits) {
+VecSimIndex *NewIndexImpl(const VecSimParams *params) {
+    switch (params->algoParams.svsParams.quantBits) {
     case 0:
-        return NewIndexImpl<DataType, MetricType, 0>(svsParams, allocator);
+        return NewIndexImpl<DataType, MetricType, 0>(params);
     case 8:
-        return NewIndexImpl<DataType, MetricType, 8>(svsParams, allocator);
+        return NewIndexImpl<DataType, MetricType, 8>(params);
     case 4:
-        return NewIndexImpl<DataType, MetricType, 4>(svsParams, allocator);
+        return NewIndexImpl<DataType, MetricType, 4>(params);
     default:
         // If we got here something is wrong.
-        assert(false && "Unsupported quantization mode");
+        FactoryLog(params->logCtx, VecSimCommonStrings::LOG_WARNING_STRING,
+                   "SVSIndex: Unsupported quantization mode");
         return NULL;
     }
 }
 
 template <typename DataType>
-VecSimIndex *NewIndexImpl(const SVSParams *svsParams,
-                          const std::shared_ptr<VecSimAllocator> &allocator) {
-    /* In fact, there is no need of NewAbstractInitParams for the Vamana/SVS algorithm.
-     * However, the established pattern in VecSim is to inherit all index classes
-     * from an abstract VecSimIndexAbstract class.
-     * The abstract parent, in turn, needs the abstract parameters.
-     * TODO: see if you can get rid of the abstrat params.
-     */
-    switch (svsParams->metric) {
+VecSimIndex *NewIndexImpl(const VecSimParams *params) {
+    switch (params->algoParams.svsParams.metric) {
     case VecSimMetric_L2:
-        return NewIndexImpl<DataType, svs::distance::DistanceL2>(svsParams, allocator);
+        return NewIndexImpl<DataType, svs::distance::DistanceL2>(params);
     case VecSimMetric_IP:
-        return NewIndexImpl<DataType, svs::distance::DistanceIP>(svsParams, allocator);
+        return NewIndexImpl<DataType, svs::distance::DistanceIP>(params);
     case VecSimMetric_Cosine:
         // FIXME(rfsaliev) To be fixed in SVS:
         // is not defined in svs/include/svs/quantization/lvq/vectors.h :
         // template <> struct BiasedDistance<distance::DistanceCosineSimilarity>
-        return NewIndexImpl<DataType, svs::distance::DistanceIP>(svsParams, allocator);
+        return NewIndexImpl<DataType, svs::distance::DistanceIP>(params);
     default:
         // If we got here something is wrong.
-        assert(false && "Unknown distance metric type");
+        FactoryLog(params->logCtx, VecSimCommonStrings::LOG_WARNING_STRING,
+                   "SVSIndex: Unknown distance metric type");
         return NULL;
     }
 }
 
 VecSimIndex *NewIndexImpl(const VecSimParams *params) {
-    const SVSParams *svsParams = &params->algoParams.svsParams;
-    auto allocator = VecSimAllocator::newVecsimAllocator();
-    switch (svsParams->type) {
+    assert(params && params->algo == VecSimAlgo_SVS);
+    switch (params->algoParams.svsParams.type) {
     case VecSimType_FLOAT32:
-        return NewIndexImpl<float>(svsParams, allocator);
+        return NewIndexImpl<float>(params);
     default:
         // If we got here something is wrong.
         FactoryLog(params->logCtx, VecSimCommonStrings::LOG_WARNING_STRING,

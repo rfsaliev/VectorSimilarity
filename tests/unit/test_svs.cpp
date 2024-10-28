@@ -25,7 +25,11 @@ protected:
         return test_utils::CreateNewIndex(params, index_type_t::get_index_type());
     }
 
-    SVSIndexBase *CastToSVS(VecSimIndex *index) { return static_cast<SVSIndexBase *>(index); }
+    SVSIndexBase *CastToSVS(VecSimIndex *index) {
+        auto indexBase = dynamic_cast<SVSIndexBase *>(index);
+        assert(indexBase != nullptr);
+        return indexBase;
+    }
 };
 
 // TEST_DATA_T and TEST_DIST_T are defined in test_utils.h
