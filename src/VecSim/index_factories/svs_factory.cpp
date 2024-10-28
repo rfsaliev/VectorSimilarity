@@ -67,7 +67,7 @@ VecSimIndex *NewIndexImpl(const VecSimParams *params) {
         FactoryLog(params->logCtx, VecSimCommonStrings::LOG_WARNING_STRING,
                    "SVSIndex: Unsupported data type");
         return NULL;
-    };
+    }
 }
 
 template <typename DataType, size_t QuantBits>
@@ -113,11 +113,12 @@ size_t EstimateElementSize(const SVSParams *params) {
     // FIXME(rfsaliev): custom allocator for svs::index::MutableVamanaIndex::translator_
     // + sizeof(svs::IDTranslator::external_id_type)
     // + sizeof(svs::IDTranslator::internal_id_type)
-    // FIXME(rfsaliev): fix SVS graph construction with custom allocator
-    // + size_of_graph_node(labelType)
+    using graph_idx_type = uint32_t;
+    const auto graph_node_size = SVSGraphBuilder<graph_idx_type>::element_size(params->graph_max_degree);
+    const auto vector_size = SVSIndexVectorSize(params->type, params->quantBits, params->dim);
 
-    return SVSIndexVectorSize(params->type, params->quantBits, params->dim);
-};
+    return vector_size + graph_node_size;
+}
 
 size_t EstimateInitialSize(const SVSParams *params) {
     size_t allocations_overhead = VecSimAllocator::getAllocationOverheadSize();

@@ -1526,7 +1526,7 @@ TYPED_TEST(SVSTest, testSizeEstimation) {
         .blockSize = bs,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
-        .graph_max_degree = 64,
+        .graph_max_degree = 63, // x^2-1 to round the graph block size
         .window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,

@@ -154,3 +154,35 @@ struct SVSStorageTraits {
         return dims * sizeof(DataType);
     }
 };
+
+template <typename Idx>
+struct SVSGraphBuilder {
+    using allocator_type = details::SVSAllocator<Idx>;
+    using blocked_type = svs::data::Blocked<allocator_type>;
+    using graph_data_type = svs::data::BlockedData<Idx, svs::Dynamic, allocator_type>;
+    using graph_type = svs::graphs::SimpleGraphBase<Idx, graph_data_type>;
+
+    template <class Data, class DistType, class Pool>
+    static graph_type build_graph(const svs::index::vamana::VamanaBuildParameters &parameters,
+                                  const Data &data, DistType distance, Pool &threadpool,
+                                  Idx entry_point, size_t block_size,
+                                  std::shared_ptr<VecSimAllocator> allocator) {
+        auto svs_bs = details::SVSBlockSize(block_size, (parameters.graph_max_degree + 1) * sizeof(Idx));
+        // Perform graph construction.
+        allocator_type data_allocator{std::move(allocator)};
+        blocked_type blocked_alloc{{svs_bs}, data_allocator};
+        auto graph = graph_type{data.size(), parameters.graph_max_degree, blocked_alloc};
+        auto prefetch_parameters =
+            svs::index::vamana::extensions::estimate_prefetch_parameters(data);
+        auto builder = svs::index::vamana::VamanaBuilder(
+            graph, data, std::move(distance), parameters, threadpool, prefetch_parameters);
+
+        builder.construct(1.0f, entry_point);
+        builder.construct(parameters.alpha, entry_point);
+        return graph;
+    }
+
+    static constexpr size_t element_size(size_t graph_max_degree, size_t alignment = 0) {
+        return sizeof(Idx) * (graph_max_degree + 1);
+    }
+};

@@ -47,8 +47,9 @@ protected:
     using storage_traits_t = SVSStorageTraits<DataType, QuantBits>;
     using index_storage_type = typename storage_traits_t::index_storage_type;
 
-    // FIXME(rfsaliev): Add SVS graph construction with custom allocator
-    using graph_type = svs::graphs::SimpleBlockedGraph<uint32_t>;
+    using graph_builder_t = SVSGraphBuilder<uint32_t>;
+    using graph_type = typename graph_builder_t::graph_type;
+
     using impl_type =
         svs::index::vamana::MutableVamanaIndex<graph_type, index_storage_type, dist_type>;
 
@@ -102,8 +103,29 @@ protected:
 
     std::unique_ptr<impl_type> makeImpl(const SVSParams &params, impl_type::data_type data,
                                         std::span<const labelType> ids) {
-        auto idx = std::make_unique<impl_type>(MakeVamanaBuildParameters(params_), std::move(data),
-                                               ids, DistType{}, num_threads());
+        svs::threads::NativeThreadPool threadpool{num_threads()};
+        // Compute the entry point.
+        auto entry_point = svs::index::vamana::extensions::compute_entry_point(data, threadpool);
+
+        // Perform graph construction.
+        auto distance = DistType{};
+        auto parameters = MakeVamanaBuildParameters(params_);
+
+        auto bs = params_.blockSize > 0 ? params_.blockSize : DEFAULT_BLOCK_SIZE;
+        auto graph = graph_builder_t::build_graph(parameters, data, distance, threadpool,
+                                                 entry_point, bs, this->getAllocator());
+
+        auto idx = std::make_unique<impl_type>(std::move(graph), std::move(data), entry_point,
+                                               std::move(distance), ids, std::move(threadpool));
+
+        // Set MutableIndex build parameters
+        idx->set_construction_window_size(parameters.window_size);
+        idx->set_max_candidates(parameters.max_candidate_pool_size);
+        idx->set_prune_to(parameters.prune_to);
+        idx->set_alpha(parameters.alpha);
+        idx->set_full_search_history(parameters.use_full_search_history);
+
+        // Configure default search parameters
         auto sp = idx->get_search_parameters();
         sp.buffer_config({idx->get_construction_window_size()});
         idx->set_search_parameters(sp);
