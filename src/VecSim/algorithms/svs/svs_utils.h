@@ -105,11 +105,11 @@ joinSearchParams(svs::index::vamana::VamanaSearchParameters &&sp,
     if (rt_params.windowSize > 0) {
         sp.buffer_config({rt_params.windowSize});
     }
-    switch (rt_params.visitedSet) {
-    case VISITED_SET_ENABLE:
+    switch (rt_params.searchHistory) {
+    case VecSimOption_ENABLE:
         sp.search_buffer_visited_set(true);
         break;
-    case VISITED_SET_DISABLE:
+    case VecSimOption_DISABLE:
         sp.search_buffer_visited_set(false);
         break;
     default:

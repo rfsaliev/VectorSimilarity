@@ -61,10 +61,10 @@ TYPED_TEST(SVSTest, svs_vector_add_test) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -89,10 +89,10 @@ TYPED_TEST(SVSTest, svs_vector_update_test) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -153,10 +153,10 @@ TYPED_TEST(SVSTest, svs_vector_search_by_id_test) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -185,10 +185,10 @@ TYPED_TEST(SVSTest, svs_bulk_vectors_add_test) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -233,10 +233,10 @@ TYPED_TEST(SVSTest, svs_get_distance) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     for (size_t i = 0; i < numIndex; i++) {
@@ -302,10 +302,10 @@ TYPED_TEST(SVSTest, svs_indexing_same_vector) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -338,10 +338,10 @@ TYPED_TEST(SVSTest, svs_reindexing_same_vector) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -398,10 +398,10 @@ TYPED_TEST(SVSTest, svs_reindexing_same_vector_different_id) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -455,10 +455,10 @@ TYPED_TEST(SVSTest, svs_batch_iterator) {
             /* SVS-Vamana specifics */
             .alpha = 1.2,
             .graph_max_degree = 64,
-            .window_size = 20,
+            .construction_window_size = 20,
             .max_candidate_pool_size = 1024,
             .prune_to = 60,
-            .use_full_search_history = true,
+            .use_search_history = VecSimOption_ENABLE,
         };
 
         VecSimIndex *index = this->CreateNewIndex(params);
@@ -510,10 +510,10 @@ TYPED_TEST(SVSTest, svs_batch_iterator_non_unique_scores) {
             /* SVS-Vamana specifics */
             .alpha = 1.2,
             .graph_max_degree = 64,
-            .window_size = 20,
+            .construction_window_size = 20,
             .max_candidate_pool_size = 1024,
             .prune_to = 60,
-            .use_full_search_history = true,
+            .use_search_history = VecSimOption_ENABLE,
         };
 
         VecSimIndex *index = this->CreateNewIndex(params);
@@ -572,10 +572,10 @@ TYPED_TEST(SVSTest, svs_batch_iterator_reset) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -631,10 +631,10 @@ TYPED_TEST(SVSTest, svs_batch_iterator_corner_cases) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -706,10 +706,10 @@ TYPED_TEST(SVSTest, svs_empty_index) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -762,10 +762,10 @@ TYPED_TEST(SVSTest, test_delete_shift_index) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -806,10 +806,10 @@ TYPED_TEST(SVSTest, sanity_reinsert_1280) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -859,10 +859,10 @@ TYPED_TEST(SVSTest, test_svs_info) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -919,10 +919,10 @@ TYPED_TEST(SVSTest, test_basic_svs_info_iterator) {
             /* SVS-Vamana specifics */
             .alpha = 1.2,
             .graph_max_degree = 64,
-            .window_size = 20,
+            .construction_window_size = 20,
             .max_candidate_pool_size = 1024,
             .prune_to = 60,
-            .use_full_search_history = true,
+            .use_search_history = VecSimOption_ENABLE,
         };
 
         VecSimIndex *index = this->CreateNewIndex(params);
@@ -945,10 +945,10 @@ TYPED_TEST(SVSTest, test_dynamic_svs_info_iterator) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -1040,10 +1040,10 @@ TYPED_TEST(SVSTest, svs_vector_search_test_ip) {
             /* SVS-Vamana specifics */
             .alpha = 0.9,
             .graph_max_degree = 64,
-            .window_size = 20,
+            .construction_window_size = 20,
             .max_candidate_pool_size = 1024,
             .prune_to = 60,
-            .use_full_search_history = true,
+            .use_search_history = VecSimOption_ENABLE,
         };
 
         VecSimIndex *index = this->CreateNewIndex(params);
@@ -1086,10 +1086,10 @@ TYPED_TEST(SVSTest, svs_vector_search_test_l2) {
             /* SVS-Vamana specifics */
             .alpha = 1.2,
             .graph_max_degree = 64,
-            .window_size = 20,
+            .construction_window_size = 20,
             .max_candidate_pool_size = 1024,
             .prune_to = 60,
-            .use_full_search_history = true,
+            .use_search_history = VecSimOption_ENABLE,
         };
 
         VecSimIndex *index = this->CreateNewIndex(params);
@@ -1129,10 +1129,10 @@ TYPED_TEST(SVSTest, svs_search_empty_index) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -1191,10 +1191,10 @@ TYPED_TEST(SVSTest, svs_test_inf_score) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -1239,10 +1239,10 @@ TYPED_TEST(SVSTest, svs_resolve_params) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -1314,10 +1314,10 @@ TYPED_TEST(SVSTest, preferAdHocOptimization) {
                 /* SVS-Vamana specifics */
                 .alpha = 1.2,
                 .graph_max_degree = 64,
-                .window_size = 20,
+                .construction_window_size = 20,
                 .max_candidate_pool_size = 1024,
                 .prune_to = 60,
-                .use_full_search_history = true,
+                .use_search_history = VecSimOption_ENABLE,
             };
 
             VecSimIndex *index = this->CreateNewIndex(params);
@@ -1347,10 +1347,10 @@ TYPED_TEST(SVSTest, preferAdHocOptimization) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -1375,10 +1375,10 @@ TYPED_TEST(SVSTest, batchIteratorSwapIndices) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -1444,10 +1444,10 @@ TYPED_TEST(SVSTest, svs_vector_search_test_cosine) {
         /* SVS-Vamana specifics */
         .alpha = 0.9,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -1527,10 +1527,10 @@ TYPED_TEST(SVSTest, testSizeEstimation) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 63, // x^2-1 to round the graph block size
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -1565,10 +1565,10 @@ TYPED_TEST(SVSTest, testInitialSizeEstimationWithInitialCapacity) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -1594,10 +1594,10 @@ TYPED_TEST(SVSTest, testTimeoutReturn) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -1637,10 +1637,10 @@ TYPED_TEST(SVSTest, testTimeoutReturn_batch_iterator) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -1695,10 +1695,10 @@ TYPED_TEST(SVSTest, rangeQuery) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -1758,10 +1758,10 @@ TYPED_TEST(SVSTest, rangeQueryCosine) {
         /* SVS-Vamana specifics */
         .alpha = 0.9,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
@@ -1809,10 +1809,10 @@ TYPED_TEST(SVSTest, FitMemoryTest) {
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
-        .window_size = 20,
+        .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
         .prune_to = 60,
-        .use_full_search_history = true,
+        .use_search_history = VecSimOption_ENABLE,
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);

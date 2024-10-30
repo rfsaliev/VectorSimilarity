@@ -61,7 +61,18 @@ protected:
     size_t num_threads() const { return params_.num_threads; }
 
     static constexpr SVSParams initParams(const SVSParams &hint) {
+        // TODO(rfsaliev) evaluate optimal default parameters
+        // current assumption:
+        // * graph_max_degree (64): =~ HNSW_M * 2; may be 63 for alignment?
+        // * construction_window_size (250): =~ HNSW_EF_CONSTRUCTION
+        // * max_candiate_pool_size (750): = windos_size_construction * 3
+        // * prune_to (60): < graph_max_degree, optimal = graph_max_degree - 4
+        // * num_threads: = CPU cores per socket
+        // * search_window_size: 10 =~ HNSW_EF_RUNTIME
         // clang-format off
+        #define GET_WITH_DEFAULT(v, d) ((v)?(v):(d))
+        const auto construction_window_size = GET_WITH_DEFAULT(hint.construction_window_size, 250);
+        const auto graph_degree = GET_WITH_DEFAULT(hint.graph_max_degree, 64);
         return SVSParams {
             .type = hint.type,
             .dim = hint.dim,
@@ -70,14 +81,16 @@ protected:
             .initialCapacity = hint.initialCapacity,
             .blockSize = hint.blockSize ? hint.blockSize : DEFAULT_BLOCK_SIZE,
 
-            .alpha = hint.alpha ? hint.alpha : (hint.metric == VecSimMetric_L2 ? 1.2f : 0.9f),
-            .graph_max_degree = hint.graph_max_degree ? hint.graph_max_degree : 32,
-            .window_size = hint.window_size ? hint.window_size : 64,
-            .max_candidate_pool_size = hint.max_candidate_pool_size ? hint.max_candidate_pool_size : 80,
-            .prune_to = hint.prune_to ? hint.prune_to : 32,
-            .use_full_search_history = hint.use_full_search_history ? hint.use_full_search_history : true,
-            .num_threads = hint.num_threads ? hint.num_threads : std::thread::hardware_concurrency()
+            .alpha = GET_WITH_DEFAULT(hint.alpha, (hint.metric == VecSimMetric_L2 ? 1.2f : 0.9f)),
+            .graph_max_degree = graph_degree,
+            .construction_window_size = construction_window_size,
+            .max_candidate_pool_size = GET_WITH_DEFAULT(hint.max_candidate_pool_size, construction_window_size * 3),
+            .prune_to = GET_WITH_DEFAULT(hint.prune_to, graph_degree - 4),
+            .use_search_history = hint.use_search_history != VecSimOption_DEFAULT ? hint.use_search_history : VecSimOption_ENABLE,
+            .num_threads = GET_WITH_DEFAULT(hint.num_threads, std::thread::hardware_concurrency()),
+            .search_window_size = GET_WITH_DEFAULT(hint.search_window_size, 10)
         };
+        #undef GET_WITH_DEFAULT
         // clang-format on
     }
 
@@ -96,9 +109,12 @@ protected:
 
     static svs::index::vamana::VamanaBuildParameters
     MakeVamanaBuildParameters(const SVSParams &params) {
-        return {params.alpha,       params.graph_max_degree,
-                params.window_size, params.max_candidate_pool_size,
-                params.prune_to,    params.use_full_search_history};
+        return {params.alpha,
+                params.graph_max_degree,
+                params.construction_window_size,
+                params.max_candidate_pool_size,
+                params.prune_to,
+                params.use_search_history != VecSimOption_DISABLE};
     }
 
     std::unique_ptr<impl_type> makeImpl(const SVSParams &params, impl_type::data_type data,
@@ -113,7 +129,7 @@ protected:
 
         auto bs = params_.blockSize > 0 ? params_.blockSize : DEFAULT_BLOCK_SIZE;
         auto graph = graph_builder_t::build_graph(parameters, data, distance, threadpool,
-                                                 entry_point, bs, this->getAllocator());
+                                                  entry_point, bs, this->getAllocator());
 
         auto idx = std::make_unique<impl_type>(std::move(graph), std::move(data), entry_point,
                                                std::move(distance), ids, std::move(threadpool));
@@ -127,7 +143,7 @@ protected:
 
         // Configure default search parameters
         auto sp = idx->get_search_parameters();
-        sp.buffer_config({idx->get_construction_window_size()});
+        sp.buffer_config({params_.search_window_size});
         idx->set_search_parameters(sp);
         idx->reset_performance_parameters();
         return idx;

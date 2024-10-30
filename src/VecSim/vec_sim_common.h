@@ -50,6 +50,12 @@ typedef enum {
 	VecSimAlgo_SVS
 } VecSimAlgo;
 
+typedef enum {
+    VecSimOption_DEFAULT = 0,
+    VecSimOption_ENABLE  = 1,
+    VecSimOption_DISABLE = 2,
+} VecSimOptionBool;
+
 // Distance metric
 typedef enum { VecSimMetric_L2, VecSimMetric_IP, VecSimMetric_Cosine } VecSimMetric;
 
@@ -145,11 +151,12 @@ typedef struct {
     size_t quantBits;
     float alpha;
     size_t graph_max_degree;
-    size_t window_size;
+    size_t construction_window_size;
     size_t max_candidate_pool_size;
     size_t prune_to;
-    bool use_full_search_history;
+    VecSimOptionBool use_search_history;
     size_t num_threads;
+    size_t search_window_size;
 } SVSParams;
 
 // A struct that contains HNSW tiered index specific params.
@@ -200,15 +207,9 @@ typedef struct {
     double epsilon;   // Epsilon parameter for HNSW graph accuracy/latency for range search.
 } HNSWRuntimeParams;
 
-typedef enum {
-    VISITED_SET_DEFAULT = 0,
-    VISITED_SET_ENABLE,
-    VISITED_SET_DISABLE,
-} SVSVisitedSetMode;
-
 typedef struct {
     size_t windowSize; // Search window size for Vamana graph accuracy/latency tune.
-    SVSVisitedSetMode visitedSet; // Enabling of the visited set for search.
+    VecSimOptionBool searchHistory; // Enabling of the visited set for search.
 } SVSRuntimeParams;
 
 /**
