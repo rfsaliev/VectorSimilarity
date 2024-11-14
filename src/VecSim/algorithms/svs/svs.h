@@ -306,6 +306,9 @@ public:
             reinterpret_cast<const DataType *>(queryBlob), 1, params_.dim};
         auto result = svs::QueryResult<size_t>{queries.size(), k};
         auto sp = details::joinSearchParams(get_vamana()->get_search_parameters(), queryParams);
+        if(get_vamana()->get_num_threads() != queries.size()) {
+            get_vamana()->set_num_threads(queries.size());
+        }
         get_vamana()->search(result.view(), queries, sp);
 
         assert(result.n_queries() == 1);
