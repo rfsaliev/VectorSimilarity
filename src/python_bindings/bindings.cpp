@@ -564,7 +564,8 @@ public:
         }
         size_t n_vectors = vectors_data.shape(0);
 
-        auto svs_index = static_cast<SVSIndexBase *>(this->index.get());
+        auto svs_index = dynamic_cast<SVSIndexBase *>(this->index.get());
+        assert(svs_index);
         svs_index->addVectors(vectors_data.data(), labels.data(), n_vectors);
     }
 };
@@ -593,15 +594,15 @@ PYBIND11_MODULE(VecSim, m) {
         .value("VecSimMetric_Cosine", VecSimMetric_Cosine)
         .export_values();
 
+    py::enum_<VecSimOptionBool>(m, "VecSimOptionBool")
+        .value("VecSimOption_DEFAULT", VecSimOption_DEFAULT)
+        .value("VecSimOption_ENABLE", VecSimOption_ENABLE)
+        .value("VecSimOption_DISABLE", VecSimOption_DISABLE)
+        .export_values();
+
     py::enum_<VecSimQueryReply_Order>(m, "VecSimQueryReply_Order")
         .value("BY_SCORE", BY_SCORE)
         .value("BY_ID", BY_ID)
-        .export_values();
-
-    py::enum_<SVSVisitedSetMode>(m, "SVSVisitedSetMode")
-        .value("DEFAULT", VISITED_SET_DEFAULT)
-        .value("ENABLE", VISITED_SET_ENABLE)
-        .value("DISABLE", VISITED_SET_DISABLE)
         .export_values();
 
     py::class_<HNSWParams>(m, "HNSWParams")
@@ -633,13 +634,15 @@ PYBIND11_MODULE(VecSim, m) {
         .def_readwrite("multi", &SVSParams::multi)
         .def_readwrite("initialCapacity", &SVSParams::initialCapacity)
         .def_readwrite("blockSize", &SVSParams::blockSize)
+        .def_readwrite("quantBits", &SVSParams::quantBits)
         .def_readwrite("alpha", &SVSParams::alpha)
         .def_readwrite("graph_max_degree", &SVSParams::graph_max_degree)
-        .def_readwrite("window_size", &SVSParams::window_size)
+        .def_readwrite("construction_window_size", &SVSParams::construction_window_size)
         .def_readwrite("max_candidate_pool_size", &SVSParams::max_candidate_pool_size)
         .def_readwrite("prune_to", &SVSParams::prune_to)
-        .def_readwrite("use_full_search_history", &SVSParams::use_full_search_history)
-        .def_readwrite("num_threads", &SVSParams::num_threads);
+        .def_readwrite("use_search_history", &SVSParams::use_search_history)
+        .def_readwrite("num_threads", &SVSParams::num_threads)
+        .def_readwrite("search_window_size", &SVSParams::search_window_size);
 
     py::class_<TieredHNSWParams>(m, "TieredHNSWParams")
         .def(py::init())
@@ -671,7 +674,7 @@ PYBIND11_MODULE(VecSim, m) {
     py::class_<SVSRuntimeParams>(queryParams, "SVSRuntimeParams")
         .def(py::init<>())
         .def_readwrite("windowSize", &SVSRuntimeParams::windowSize)
-        .def_readwrite("visitedSet", &SVSRuntimeParams::visitedSet);
+        .def_readwrite("searchHistory", &SVSRuntimeParams::searchHistory);
 
     py::class_<PyVecSimIndex>(m, "VecSimIndex")
         .def(py::init([](const VecSimParams &params) { return new PyVecSimIndex(params); }),
