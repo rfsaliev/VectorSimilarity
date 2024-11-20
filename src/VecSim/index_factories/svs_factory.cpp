@@ -14,21 +14,34 @@ bool FactoryLog(void *ctx, const char *lvl, const char *msg) {
     return true;
 }
 
-template <typename DataType, typename MetricType, size_t QuantBits>
+template <typename DataType, size_t QuantBits>
+struct is_lvq_compatible : public std::false_type {};
+
+template <size_t QuantBits>
+struct is_lvq_compatible<float, QuantBits> : public std::true_type {};
+
+template <typename DataType>
+struct is_lvq_compatible<DataType, 0> : public std::true_type {};
+
+template <>
+struct is_lvq_compatible<float, 0> : public std::true_type {};
+
+template <typename MetricType, typename DataType, size_t QuantBits,
+          std::enable_if_t<is_lvq_compatible<DataType, QuantBits>::value, bool> = true>
 VecSimIndex *NewIndexImpl(const VecSimParams *params) {
     auto allocator = VecSimAllocator::newVecsimAllocator();
     return new (allocator) SVSIndex<DataType, MetricType, QuantBits>(params, allocator);
 }
 
-template <typename DataType, typename MetricType>
-VecSimIndex *NewIndexImpl(const VecSimParams *params) {
+template <typename MetricType, typename DataType>
+VecSimIndex *NewIndexImplLVQ(const VecSimParams *params) {
     switch (params->algoParams.svsParams.quantBits) {
     case 0:
-        return NewIndexImpl<DataType, MetricType, 0>(params);
+        return NewIndexImpl<MetricType, DataType, 0>(params);
     case 8:
-        return NewIndexImpl<DataType, MetricType, 8>(params);
+        return NewIndexImpl<MetricType, DataType, 8>(params);
     case 4:
-        return NewIndexImpl<DataType, MetricType, 4>(params);
+        return NewIndexImpl<MetricType, DataType, 4>(params);
     default:
         // If we got here something is wrong.
         FactoryLog(params->logCtx, VecSimCommonStrings::LOG_WARNING_STRING,
@@ -37,35 +50,44 @@ VecSimIndex *NewIndexImpl(const VecSimParams *params) {
     }
 }
 
-template <typename DataType>
+template <typename MetricType>
 VecSimIndex *NewIndexImpl(const VecSimParams *params) {
-    switch (params->algoParams.svsParams.metric) {
-    case VecSimMetric_L2:
-        return NewIndexImpl<DataType, svs::distance::DistanceL2>(params);
-    case VecSimMetric_IP:
-        return NewIndexImpl<DataType, svs::distance::DistanceIP>(params);
-    case VecSimMetric_Cosine:
+    assert(params && params->algo == VecSimAlgo_SVS);
+    switch (params->algoParams.svsParams.type) {
+    case VecSimType_FLOAT32:
+        return NewIndexImplLVQ<MetricType, float>(params);
+    case VecSimType_FLOAT16:
         // FIXME(rfsaliev) To be fixed in SVS:
-        // is not defined in svs/include/svs/quantization/lvq/vectors.h :
-        // template <> struct BiasedDistance<distance::DistanceCosineSimilarity>
-        return NewIndexImpl<DataType, svs::distance::DistanceIP>(params);
+        // Float16 + LVQ is not supported
+        if (params->algoParams.svsParams.quantBits > 0) {
+            FactoryLog(params->logCtx, VecSimCommonStrings::LOG_WARNING_STRING,
+                       "SVSIndex: LVQ+FLOAT16 is not supported");
+            return NULL;
+        }
+        return NewIndexImpl<MetricType, svs::Float16, 0>(params);
     default:
         // If we got here something is wrong.
         FactoryLog(params->logCtx, VecSimCommonStrings::LOG_WARNING_STRING,
-                   "SVSIndex: Unknown distance metric type");
+                   "SVSIndex: Unsupported data type");
         return NULL;
     }
 }
 
 VecSimIndex *NewIndexImpl(const VecSimParams *params) {
-    assert(params && params->algo == VecSimAlgo_SVS);
-    switch (params->algoParams.svsParams.type) {
-    case VecSimType_FLOAT32:
-        return NewIndexImpl<float>(params);
+    switch (params->algoParams.svsParams.metric) {
+    case VecSimMetric_L2:
+        return NewIndexImpl<svs::distance::DistanceL2>(params);
+    case VecSimMetric_IP:
+        return NewIndexImpl<svs::distance::DistanceIP>(params);
+    case VecSimMetric_Cosine:
+        // FIXME(rfsaliev) To be fixed in SVS:
+        // is not defined in svs/include/svs/quantization/lvq/vectors.h :
+        // template <> struct BiasedDistance<distance::DistanceCosineSimilarity>
+        return NewIndexImpl<svs::distance::DistanceIP>(params);
     default:
         // If we got here something is wrong.
         FactoryLog(params->logCtx, VecSimCommonStrings::LOG_WARNING_STRING,
-                   "SVSIndex: Unsupported data type");
+                   "SVSIndex: Unknown distance metric type");
         return NULL;
     }
 }
@@ -114,7 +136,8 @@ size_t EstimateElementSize(const SVSParams *params) {
     // + sizeof(svs::IDTranslator::external_id_type)
     // + sizeof(svs::IDTranslator::internal_id_type)
     using graph_idx_type = uint32_t;
-    const auto graph_node_size = SVSGraphBuilder<graph_idx_type>::element_size(params->graph_max_degree);
+    const auto graph_node_size =
+        SVSGraphBuilder<graph_idx_type>::element_size(params->graph_max_degree);
     const auto vector_size = SVSIndexVectorSize(params->type, params->quantBits, params->dim);
 
     return vector_size + graph_node_size;

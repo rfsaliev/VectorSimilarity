@@ -30,6 +30,24 @@
 #include "VecSim/algorithms/svs/svs_batch_iterator.h"
 #include "VecSim/algorithms/svs/svs_extensions.h"
 
+namespace details {
+template <typename T>
+struct vecsim_dtype;
+
+template <>
+struct vecsim_dtype<float> {
+    using type = float;
+};
+
+template <>
+struct vecsim_dtype<svs::Float16> {
+    using type = vecsim_types::float16;
+};
+
+template <typename T>
+using vecsim_dt = typename vecsim_dtype<T>::type;
+} // namespace details
+
 struct SVSIndexBase {
     virtual ~SVSIndexBase() = default;
     virtual int addVectors(const void *vectors_data, const labelType *labels, size_t n) = 0;
@@ -38,11 +56,12 @@ struct SVSIndexBase {
 // TODO(rfsaliev)
 //  * wrap vamana_idx into a handler with init()/get() to avoid improper use risk
 template <typename DataType, typename DistType, size_t QuantBits>
-class SVSIndex : public VecSimIndexAbstract<DataType, float>, public SVSIndexBase {
+class SVSIndex : public VecSimIndexAbstract<details::vecsim_dt<DataType>, float>,
+                 public SVSIndexBase {
 protected:
     using data_type = DataType;
     using dist_type = DistType;
-    using Base = VecSimIndexAbstract<DataType, DataType>;
+    using Base = VecSimIndexAbstract<details::vecsim_dt<DataType>, float>;
 
     using storage_traits_t = SVSStorageTraits<DataType, QuantBits>;
     using index_storage_type = typename storage_traits_t::index_storage_type;
@@ -306,7 +325,7 @@ public:
             reinterpret_cast<const DataType *>(queryBlob), 1, params_.dim};
         auto result = svs::QueryResult<size_t>{queries.size(), k};
         auto sp = details::joinSearchParams(get_vamana()->get_search_parameters(), queryParams);
-        if(get_vamana()->get_num_threads() != queries.size()) {
+        if (get_vamana()->get_num_threads() != queries.size()) {
             get_vamana()->set_num_threads(queries.size());
         }
         get_vamana()->search(result.view(), queries, sp);

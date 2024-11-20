@@ -545,6 +545,9 @@ public:
     explicit PySVSIndex(const SVSParams &svs_params) {
         VecSimParams params = {.algo = VecSimAlgo_SVS, .algoParams = {.svsParams = svs_params}};
         this->index = std::shared_ptr<VecSimIndex>(VecSimIndex_New(&params), VecSimIndex_Free);
+        if (!this->index) {
+            throw std::runtime_error("Index creation failed");
+        }
     }
 
     void addVectorsParallel(const py::object &input, const py::object &vectors_labels) {
