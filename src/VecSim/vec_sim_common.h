@@ -135,6 +135,14 @@ typedef struct {
     size_t blockSize;
 } BFParams;
 
+typedef enum {
+    VecSimQuant_0 = 0,
+    VecSimQuant_NONE = VecSimQuant_0,
+    VecSimQuant_8 = 8,
+    VecSimQuant_4 = 4,
+    VecSimQuant_4x8 = 4 | (8 << 10)
+} VecSimQuantBits;
+
 typedef struct {
     /* We need this because all indexes inher from an abstract index class
      * that looks after these.
@@ -148,7 +156,7 @@ typedef struct {
     size_t blockSize;
 
     /* SVS-Vamana specifics */
-    size_t quantBits;
+    VecSimQuantBits quantBits;
     float alpha;
     size_t graph_max_degree;
     size_t construction_window_size;

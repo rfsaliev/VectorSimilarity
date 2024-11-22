@@ -14,34 +14,24 @@ bool FactoryLog(void *ctx, const char *lvl, const char *msg) {
     return true;
 }
 
-template <typename DataType, size_t QuantBits>
-struct is_lvq_compatible : public std::false_type {};
-
-template <size_t QuantBits>
-struct is_lvq_compatible<float, QuantBits> : public std::true_type {};
-
-template <typename DataType>
-struct is_lvq_compatible<DataType, 0> : public std::true_type {};
-
-template <>
-struct is_lvq_compatible<float, 0> : public std::true_type {};
-
-template <typename MetricType, typename DataType, size_t QuantBits,
-          std::enable_if_t<is_lvq_compatible<DataType, QuantBits>::value, bool> = true>
+template <typename MetricType, typename DataType, size_t QuantBits = 0, size_t ResidualBits = 0>
 VecSimIndex *NewIndexImpl(const VecSimParams *params) {
     auto allocator = VecSimAllocator::newVecsimAllocator();
-    return new (allocator) SVSIndex<DataType, MetricType, QuantBits>(params, allocator);
+    return new (allocator)
+        SVSIndex<MetricType, DataType, QuantBits, ResidualBits>(params, allocator);
 }
 
 template <typename MetricType, typename DataType>
 VecSimIndex *NewIndexImplLVQ(const VecSimParams *params) {
     switch (params->algoParams.svsParams.quantBits) {
-    case 0:
+    case VecSimQuant_0:
         return NewIndexImpl<MetricType, DataType, 0>(params);
-    case 8:
+    case VecSimQuant_8:
         return NewIndexImpl<MetricType, DataType, 8>(params);
-    case 4:
+    case VecSimQuant_4:
         return NewIndexImpl<MetricType, DataType, 4>(params);
+    case VecSimQuant_4x8:
+        return NewIndexImpl<MetricType, DataType, 4, 8>(params);
     default:
         // If we got here something is wrong.
         FactoryLog(params->logCtx, VecSimCommonStrings::LOG_WARNING_STRING,
@@ -51,7 +41,7 @@ VecSimIndex *NewIndexImplLVQ(const VecSimParams *params) {
 }
 
 template <typename MetricType>
-VecSimIndex *NewIndexImpl(const VecSimParams *params) {
+VecSimIndex *NewIndexDType(const VecSimParams *params) {
     assert(params && params->algo == VecSimAlgo_SVS);
     switch (params->algoParams.svsParams.type) {
     case VecSimType_FLOAT32:
@@ -64,7 +54,7 @@ VecSimIndex *NewIndexImpl(const VecSimParams *params) {
                        "SVSIndex: LVQ+FLOAT16 is not supported");
             return NULL;
         }
-        return NewIndexImpl<MetricType, svs::Float16, 0>(params);
+        return NewIndexImpl<MetricType, svs::Float16>(params);
     default:
         // If we got here something is wrong.
         FactoryLog(params->logCtx, VecSimCommonStrings::LOG_WARNING_STRING,
@@ -76,14 +66,14 @@ VecSimIndex *NewIndexImpl(const VecSimParams *params) {
 VecSimIndex *NewIndexImpl(const VecSimParams *params) {
     switch (params->algoParams.svsParams.metric) {
     case VecSimMetric_L2:
-        return NewIndexImpl<svs::distance::DistanceL2>(params);
+        return NewIndexDType<svs::distance::DistanceL2>(params);
     case VecSimMetric_IP:
-        return NewIndexImpl<svs::distance::DistanceIP>(params);
+        return NewIndexDType<svs::distance::DistanceIP>(params);
     case VecSimMetric_Cosine:
         // FIXME(rfsaliev) To be fixed in SVS:
         // is not defined in svs/include/svs/quantization/lvq/vectors.h :
         // template <> struct BiasedDistance<distance::DistanceCosineSimilarity>
-        return NewIndexImpl<svs::distance::DistanceIP>(params);
+        return NewIndexDType<svs::distance::DistanceIP>(params);
     default:
         // If we got here something is wrong.
         FactoryLog(params->logCtx, VecSimCommonStrings::LOG_WARNING_STRING,
@@ -92,9 +82,9 @@ VecSimIndex *NewIndexImpl(const VecSimParams *params) {
     }
 }
 
-template <typename DataType, size_t QuantBits>
+template <typename DataType, size_t QuantBits, size_t ResidualBits = 0>
 constexpr size_t SVSIndexVectorSize(size_t dims, size_t alignment = 0) {
-    return SVSStorageTraits<DataType, QuantBits>::element_size(dims, alignment);
+    return SVSStorageTraits<DataType, QuantBits, ResidualBits>::element_size(dims, alignment);
 }
 
 template <typename DataType>
@@ -147,11 +137,11 @@ size_t EstimateInitialSize(const SVSParams *params) {
     size_t allocations_overhead = VecSimAllocator::getAllocationOverheadSize();
     size_t est = sizeof(VecSimAllocator) + allocations_overhead;
 
-    // Assume FLOAT32
+    // Assume all floats have same cases
     // Assume quantBits>0 cases have same sizes
     size_t index_size = (params->quantBits == 0)
-                            ? sizeof(SVSIndex<float, svs::distance::DistanceL2, 0>)
-                            : sizeof(SVSIndex<float, svs::distance::DistanceL2, 8>);
+                            ? sizeof(SVSIndex<svs::distance::DistanceL2, float, 0>)
+                            : sizeof(SVSIndex<svs::distance::DistanceL2, float, 8>);
 
     est += index_size;
 

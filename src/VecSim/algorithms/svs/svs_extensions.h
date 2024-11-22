@@ -14,13 +14,32 @@
 
 #if LVQ_EXISTS
 #include "svs/extensions/vamana/lvq.h"
-template <typename DataType, size_t QuantBits>
-struct SVSStorageTraits<DataType, QuantBits, std::enable_if_t<(QuantBits > 0)>> {
+
+namespace details {
+template <size_t Primary, size_t Residual>
+struct LVQSelector {
+    using strategy = svs::quantization::lvq::Sequential;
+};
+
+template <>
+struct LVQSelector<4, 8> {
+    using strategy = svs::quantization::lvq::Turbo<16, 8>;
+};
+
+template <>
+struct LVQSelector<8, 0> {
+    using strategy = svs::quantization::lvq::Turbo<16, 4>;
+};
+} // namespace details
+
+template <typename DataType, size_t QuantBits, size_t ResidualBits>
+struct SVSStorageTraits<DataType, QuantBits, ResidualBits, std::enable_if_t<(QuantBits > 0)>> {
     using allocator_type = details::SVSAllocator<std::byte>;
     using blocked_type = svs::data::Blocked<allocator_type>;
+    using strategy_type = typename details::LVQSelector<QuantBits, ResidualBits>::strategy;
     using index_storage_type =
-        svs::quantization::lvq::LVQDataset<QuantBits, 0, svs::Dynamic,
-                                           svs::quantization::lvq::Sequential, blocked_type>;
+        svs::quantization::lvq::LVQDataset<QuantBits, ResidualBits, svs::Dynamic, strategy_type,
+                                           blocked_type>;
 
     template <svs::data::ImmutableMemoryDataset Dataset>
     static index_storage_type create_storage(const Dataset &data, size_t block_size,
@@ -57,4 +76,4 @@ struct SVSStorageTraits<DataType, QuantBits, std::enable_if_t<(QuantBits > 0)>> 
         return primary_type::compute_data_dimensions(layout_type{layout_dims}, alignment);
     }
 };
-#endif
+#endif // LVQ_EXISTS

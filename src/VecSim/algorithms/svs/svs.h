@@ -55,22 +55,22 @@ struct SVSIndexBase {
 
 // TODO(rfsaliev)
 //  * wrap vamana_idx into a handler with init()/get() to avoid improper use risk
-template <typename DataType, typename DistType, size_t QuantBits>
+template <typename MetricType, typename DataType, size_t QuantBits, size_t ResidualBits = 0>
 class SVSIndex : public VecSimIndexAbstract<details::vecsim_dt<DataType>, float>,
                  public SVSIndexBase {
 protected:
     using data_type = DataType;
-    using dist_type = DistType;
+    using distance_f = MetricType;
     using Base = VecSimIndexAbstract<details::vecsim_dt<DataType>, float>;
 
-    using storage_traits_t = SVSStorageTraits<DataType, QuantBits>;
+    using storage_traits_t = SVSStorageTraits<DataType, QuantBits, ResidualBits>;
     using index_storage_type = typename storage_traits_t::index_storage_type;
 
     using graph_builder_t = SVSGraphBuilder<uint32_t>;
     using graph_type = typename graph_builder_t::graph_type;
 
     using impl_type =
-        svs::index::vamana::MutableVamanaIndex<graph_type, index_storage_type, dist_type>;
+        svs::index::vamana::MutableVamanaIndex<graph_type, index_storage_type, distance_f>;
 
     /* Notice: SimpleGraph template can only be instatiatied for std::unsigned_integral type */
     size_t changes_num = 0;
@@ -143,7 +143,7 @@ protected:
         auto entry_point = svs::index::vamana::extensions::compute_entry_point(data, threadpool);
 
         // Perform graph construction.
-        auto distance = DistType{};
+        auto distance = distance_f{};
         auto parameters = MakeVamanaBuildParameters(params_);
 
         auto bs = params_.blockSize > 0 ? params_.blockSize : DEFAULT_BLOCK_SIZE;
@@ -221,12 +221,12 @@ protected:
         }
     }
 
-    static float toVecSimDistance(float v) { return details::toVecSimDistance<dist_type>(v); }
+    static float toVecSimDistance(float v) { return details::toVecSimDistance<distance_f>(v); }
 
     template <typename Idx>
     static VecSimQueryResult makeVecSimQueryResult(const svs::QueryResult<Idx> &result,
                                                    size_t query, size_t neighbor) {
-        return details::makeVecSimQueryResult<dist_type, Idx>(result, query, neighbor);
+        return details::makeVecSimQueryResult<distance_f, Idx>(result, query, neighbor);
     }
 
 public:

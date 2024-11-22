@@ -129,7 +129,7 @@ inline svs::lib::PowerOfTwo SVSBlockSize(size_t bs, size_t elem_size) {
 
 } // namespace details
 
-template <typename DataType, size_t QuantBits, class Enable = void>
+template <typename DataType, size_t QuantBits, size_t ResidualBits, class Enable = void>
 struct SVSStorageTraits {
     using allocator_type = details::SVSAllocator<DataType>;
     using blocked_type = svs::data::Blocked<allocator_type>;
