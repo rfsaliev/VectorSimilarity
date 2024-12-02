@@ -88,14 +88,16 @@ constexpr size_t SVSIndexVectorSize(size_t dims, size_t alignment = 0) {
 }
 
 template <typename DataType>
-size_t SVSIndexVectorSize(size_t quant_bits, size_t dims, size_t alignment = 0) {
+size_t SVSIndexVectorSize(VecSimQuantBits quant_bits, size_t dims, size_t alignment = 0) {
     switch (quant_bits) {
-    case 0:
+    case VecSimQuant_0:
         return SVSIndexVectorSize<DataType, 0>(dims, alignment);
-    case 8:
+    case VecSimQuant_8:
         return SVSIndexVectorSize<DataType, 8>(dims, alignment);
-    case 4:
+    case VecSimQuant_4:
         return SVSIndexVectorSize<DataType, 4>(dims, alignment);
+    case VecSimQuant_4x8:
+        return SVSIndexVectorSize<DataType, 4, 8>(dims, alignment);
     default:
         // If we got here something is wrong.
         assert(false && "Unsupported quantization mode");
@@ -103,11 +105,20 @@ size_t SVSIndexVectorSize(size_t quant_bits, size_t dims, size_t alignment = 0) 
     }
 }
 
-size_t SVSIndexVectorSize(VecSimType data_type, size_t quant_bits, size_t dims,
+size_t SVSIndexVectorSize(VecSimType data_type, VecSimQuantBits quant_bits, size_t dims,
                           size_t alignment = 0) {
     switch (data_type) {
     case VecSimType_FLOAT32:
         return SVSIndexVectorSize<float>(quant_bits, dims, alignment);
+    case VecSimType_FLOAT16:
+        // FIXME(rfsaliev) To be fixed in SVS:
+        // Float16 + LVQ is not supported
+        if (quant_bits != VecSimQuant_0) {
+            // If we got here something is wrong.
+            assert(false && "SVSIndex: LVQ+FLOAT16 is not supported");
+            return 0;
+        }
+        return SVSIndexVectorSize<svs::Float16>(quant_bits, dims, alignment);
     default:
         // If we got here something is wrong.
         assert(false && "Unsupported data type");
