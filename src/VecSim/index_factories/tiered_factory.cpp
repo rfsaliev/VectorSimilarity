@@ -7,8 +7,10 @@
 #include "VecSim/index_factories/tiered_factory.h"
 #include "VecSim/index_factories/hnsw_factory.h"
 #include "VecSim/index_factories/brute_force_factory.h"
+#include "VecSim/index_factories/svs_factory.h"
 
 #include "VecSim/algorithms/hnsw/hnsw_tiered.h"
+#include "VecSim/algorithms/svs/svs_tiered.h"
 #include "VecSim/types/bfloat16.h"
 #include "VecSim/types/float16.h"
 
@@ -114,21 +116,116 @@ VecSimIndex *NewIndex(const TieredIndexParams *params) {
 }
 } // namespace TieredHNSWFactory
 
+namespace TieredSVSFactory {
+template <typename DataType>
+inline VecSimIndex *NewIndex(const TieredIndexParams *params) {
+
+    // initialize svs index
+    auto *svs_index = static_cast<VecSimIndexAbstract<DataType, float>*>(
+        SVSFactory::NewIndex(params->primaryIndexParams));
+    assert(svs_index != nullptr);
+    // initialize brute force index
+
+    BFParams bf_params = {.type = params->primaryIndexParams->algoParams.svsParams.type,
+                          .dim = params->primaryIndexParams->algoParams.svsParams.dim,
+                          .metric = params->primaryIndexParams->algoParams.svsParams.metric,
+                          .multi = false, // multi not supported
+                          .blockSize = params->primaryIndexParams->algoParams.svsParams.blockSize};
+
+    std::shared_ptr<VecSimAllocator> flat_allocator = VecSimAllocator::newVecsimAllocator();
+    AbstractIndexInitParams abstractInitParams = {.allocator = flat_allocator,
+                                                  .dim = bf_params.dim,
+                                                  .vecType = bf_params.type,
+                                                  .metric = bf_params.metric,
+                                                  .blockSize = bf_params.blockSize,
+                                                  .multi = bf_params.multi,
+                                                  .logCtx = params->primaryIndexParams->logCtx};
+    auto frontendIndex = static_cast<BruteForceIndex_Single<DataType, float> *>(
+        BruteForceFactory::NewIndex(&bf_params, abstractInitParams));
+
+    // Create new tiered svs index
+    std::shared_ptr<VecSimAllocator> management_layer_allocator =
+        VecSimAllocator::newVecsimAllocator();
+
+    return new (management_layer_allocator) TieredSVSIndex<DataType>(
+        svs_index, frontendIndex, *params, management_layer_allocator);
+}
+
+inline size_t EstimateInitialSize(const TieredIndexParams *params, BFParams &bf_params_output) {
+    auto& svs_params = params->primaryIndexParams->algoParams.svsParams;
+
+    // Add size estimation of VecSimTieredIndex sub indexes.
+    size_t est = SVSFactory::EstimateInitialSize(&svs_params);
+
+    // Management layer allocator overhead.
+    size_t allocations_overhead = VecSimAllocator::getAllocationOverheadSize();
+    est += sizeof(VecSimAllocator) + allocations_overhead;
+
+    // Size of the TieredHNSWIndex struct.
+    switch (svs_params.type) {
+        case VecSimType_FLOAT32:
+            est += sizeof(TieredSVSIndex<float>);
+            break;
+        case VecSimType_FLOAT16:
+            est += sizeof(TieredSVSIndex<float16>);
+            break;
+        default:
+            assert(false && "Unsupported data type");
+            break;
+    }
+
+    bf_params_output.type = svs_params.type;
+    // multi is not supported
+    bf_params_output.multi = false;
+
+    return est;
+}
+
 VecSimIndex *NewIndex(const TieredIndexParams *params) {
     // Tiered index that contains HNSW index as primary index
-    if (params->primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
-        return TieredHNSWFactory::NewIndex(params);
+    VecSimType type = params->primaryIndexParams->algoParams.svsParams.type;
+    switch (type) {
+        case VecSimType_FLOAT32:
+            return TieredSVSFactory::NewIndex<float>(params);
+        case VecSimType_FLOAT16:
+            return TieredSVSFactory::NewIndex<float16>(params);
+        default:
+            assert(false && "Unsupported data type");
+            return nullptr; // Invalid type.
     }
-    return nullptr; // Invalid algorithm or type.
+    return nullptr; // Invalid type.
 }
+} // namespace TieredSVSFactory
+
+VecSimIndex *NewIndex(const TieredIndexParams *params) {
+    // Tiered index that contains HNSW index as primary index
+    switch (params->primaryIndexParams->algo)
+    {
+    case VecSimAlgo_HNSWLIB:
+        return TieredHNSWFactory::NewIndex(params);
+    case VecSimAlgo_SVS:
+        return TieredSVSFactory::NewIndex(params);
+    default:
+        return nullptr; // Invalid algorithm.
+    }
+}
+
 size_t EstimateInitialSize(const TieredIndexParams *params) {
 
     size_t est = 0;
 
     BFParams bf_params{};
-    if (params->primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
+    switch (params->primaryIndexParams->algo)
+    {
+    case VecSimAlgo_HNSWLIB:
         est += TieredHNSWFactory::EstimateInitialSize(params);
         bf_params = TieredHNSWFactory::NewBFParams(params);
+        break;
+    case VecSimAlgo_SVS:
+        est += TieredSVSFactory::EstimateInitialSize(params, bf_params);
+        break;
+    default:
+        assert(false && "Invalid algorithm");
     }
 
     est += BruteForceFactory::EstimateInitialSize(&bf_params, false);
@@ -137,8 +234,16 @@ size_t EstimateInitialSize(const TieredIndexParams *params) {
 
 size_t EstimateElementSize(const TieredIndexParams *params) {
     size_t est = 0;
-    if (params->primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
+    switch (params->primaryIndexParams->algo)
+    {
+    case VecSimAlgo_HNSWLIB:
         est = HNSWFactory::EstimateElementSize(&params->primaryIndexParams->algoParams.hnswParams);
+        break;
+    case VecSimAlgo_SVS:
+        est = SVSFactory::EstimateElementSize(&params->primaryIndexParams->algoParams.svsParams);
+        break;
+    default:
+        assert(false && "Invalid algorithm");
     }
     return est;
 }
