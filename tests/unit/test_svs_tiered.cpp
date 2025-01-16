@@ -527,6 +527,264 @@ TYPED_TEST(SVSTieredIndexTest, deleteVector) {
               dim * pow(new_vec_val, 2));
 }
 
+TYPED_TEST(SVSTieredIndexTest, manageIndexOwnership) {
+
+    // Create TieredSVS index instance with a mock queue.
+    size_t dim = 4;
+    SVSParams params = {.type = TypeParam::get_index_type(),
+                         .dim = dim,
+                         .metric = VecSimMetric_L2,
+                         .multi = false};
+    VecSimParams svs_params = CreateParams(params);
+    auto mock_thread_pool = tieredIndexMock();
+
+    auto *tiered_index = this->CreateTieredSVSIndex(svs_params, mock_thread_pool);
+
+    // Get the allocator from the tiered index.
+    auto allocator = tiered_index->getAllocator();
+
+    EXPECT_EQ(mock_thread_pool.ctx->index_strong_ref.use_count(), 1);
+    size_t initial_mem = allocator->getAllocationSize();
+
+    // Create a dummy job callback that insert one vector to the underline SVS index.
+    auto dummy_job = [](AsyncJob *job) {
+        auto *my_index = reinterpret_cast<TieredSVSIndex<TEST_DATA_T> *>(job->index);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        size_t dim = 4;
+        TEST_DATA_T vector[dim];
+        GenerateVector<TEST_DATA_T>(vector, dim);
+        my_index->GetBackendIndex()->addVector(vector, my_index->GetBackendIndex()->indexSize());
+    };
+
+    std::atomic_int successful_executions(0);
+    auto job1 =
+        new (allocator) AsyncJob(allocator, HNSW_INSERT_VECTOR_JOB, dummy_job, tiered_index);
+    auto job2 =
+        new (allocator) AsyncJob(allocator, HNSW_INSERT_VECTOR_JOB, dummy_job, tiered_index);
+
+    // Wrap this job with an array and submit the jobs to the queue.
+    tiered_index->submitSingleJob(job1);
+    tiered_index->submitSingleJob(job2);
+    ASSERT_EQ(mock_thread_pool.jobQ.size(), 2);
+
+    // Execute the job from the queue asynchronously, delete the index in the meantime.
+    auto run_fn = [&successful_executions, &mock_thread_pool]() {
+        // Create a temporary strong reference of the index from the weak reference that the
+        // job holds, to ensure that the index is not deleted while the job is running.
+        if (auto temp_ref = mock_thread_pool.jobQ.front().index_weak_ref.lock()) {
+            // At this point we wish to validate that we have both the index strong ref (stored
+            // in index_ctx) and the weak ref owned by the job (that we currently promoted).
+            EXPECT_EQ(mock_thread_pool.jobQ.front().index_weak_ref.use_count(), 2);
+
+            mock_thread_pool.jobQ.front().job->Execute(mock_thread_pool.jobQ.front().job);
+            successful_executions++;
+        }
+        mock_thread_pool.jobQ.kick();
+    };
+    std::thread t1(run_fn);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    // Delete the index while the job is still running, to ensure that the weak ref protects
+    // the index.
+    mock_thread_pool.reset_ctx();
+    EXPECT_EQ(mock_thread_pool.jobQ.front().index_weak_ref.use_count(), 1);
+    t1.join();
+    // Expect that the first job will succeed.
+    ASSERT_EQ(successful_executions, 1);
+
+    // The second job should not run, since the weak reference is not supposed to become a
+    // strong references now.
+    ASSERT_EQ(mock_thread_pool.jobQ.size(), 1);
+    ASSERT_EQ(mock_thread_pool.jobQ.front().index_weak_ref.use_count(), 0);
+    std::thread t2(run_fn);
+    t2.join();
+    // Expect that the second job is ot successful.
+    ASSERT_EQ(successful_executions, 1);
+}
+
+TYPED_TEST(SVSTieredIndexTest, parallelSearch) {
+    size_t dim = 4;
+    size_t k = 10;
+    size_t n = 2000;
+
+    // Create TieredSVS index instance with a mock queue.
+    SVSParams params = {
+        .type = TypeParam::get_index_type(),
+        .dim = dim,
+        .metric = VecSimMetric_L2,
+        .multi = false,
+        .search_window_size = n,
+    };
+    VecSimParams svs_params = CreateParams(params);
+    auto mock_thread_pool = tieredIndexMock();
+
+    auto *tiered_index = this->CreateTieredSVSIndex(svs_params, mock_thread_pool);
+    auto allocator = tiered_index->getAllocator();
+    EXPECT_EQ(mock_thread_pool.ctx->index_strong_ref.use_count(), 1);
+
+    std::atomic_int successful_searches(0);
+    auto parallel_knn_search = [](AsyncJob *job) {
+        auto *search_job = reinterpret_cast<tieredIndexMock::SearchJobMock *>(job);
+        size_t k = search_job->k;
+        size_t dim = search_job->dim;
+        auto query = search_job->query;
+
+        auto verify_res = [&](size_t id, double score, size_t res_index) {
+            TEST_DATA_T element = *(TEST_DATA_T *)query;
+            ASSERT_EQ(std::abs(id - element), (res_index + 1) / 2);
+            ASSERT_EQ(score, dim * (id - element) * (id - element));
+        };
+        runTopKSearchTest(job->index, query, k, verify_res);
+        (*search_job->successful_searches)++;
+        delete job;
+    };
+
+    size_t n_labels = n;
+
+    // Fill the job queue with insert and search jobs, while filling the flat index, before
+    // initializing the thread pool.
+    for (size_t i = 0; i < n; i++) {
+        // Insert a vector to the flat index and add a job to insert it to the main index.
+        GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, i % n_labels, i);
+
+        // Add a search job. Make sure the query element is between k and n - k.
+        auto query = (TEST_DATA_T *)allocator->allocate(dim * sizeof(TEST_DATA_T));
+        GenerateVector<TEST_DATA_T>(query, dim, (i % (n_labels - (2 * k))) + k);
+        auto search_job = new (allocator) tieredIndexMock::SearchJobMock(
+            allocator, parallel_knn_search, tiered_index, k, query, n, dim, &successful_searches);
+        tiered_index->submitSingleJob(search_job);
+    }
+
+    EXPECT_EQ(tiered_index->indexSize(), n);
+    EXPECT_EQ(tiered_index->indexLabelCount(), n_labels);
+    EXPECT_EQ(tiered_index->GetFlatIndex()->indexSize(), n);
+    EXPECT_EQ(tiered_index->GetBackendIndex()->indexSize(), 0);
+
+    // Launch the BG threads loop that takes jobs from the queue and executes them.
+    // All the vectors are already in the tiered index, so we expect to find the expected
+    // results from the get-go.
+    mock_thread_pool.init_threads();
+    mock_thread_pool.thread_pool_join();
+
+    EXPECT_EQ(tiered_index->GetBackendIndex()->indexSize(), n);
+    EXPECT_EQ(tiered_index->GetBackendIndex()->indexLabelCount(), n_labels);
+    EXPECT_EQ(tiered_index->GetFlatIndex()->indexSize(), 0);
+    EXPECT_EQ(successful_searches, n);
+    EXPECT_EQ(mock_thread_pool.jobQ.size(), 0);
+}
+
+TYPED_TEST(SVSTieredIndexTest, parallelInsertSearch) {
+    size_t dim = 4;
+    size_t k = 10;
+    size_t n = 3000;
+
+    size_t block_size = n / 100;
+
+    // Create TieredSVS index instance with a mock queue.
+    size_t n_labels = n;
+    SVSParams params = {
+        .type = TypeParam::get_index_type(),
+        .dim = dim,
+        .metric = VecSimMetric_L2,
+        .multi = false,
+        .blockSize = block_size,
+    };
+    VecSimParams svs_params = CreateParams(params);
+    auto mock_thread_pool = tieredIndexMock();
+
+    auto *tiered_index = this->CreateTieredSVSIndex(svs_params, mock_thread_pool);
+    auto allocator = tiered_index->getAllocator();
+    EXPECT_EQ(mock_thread_pool.ctx->index_strong_ref.use_count(), 1);
+
+    // Launch the BG threads loop that takes jobs from the queue and executes them.
+    // Save the number fo tasks done by thread i in the i-th entry.
+    std::vector<size_t> completed_tasks(mock_thread_pool.thread_pool_size, 0);
+    mock_thread_pool.init_threads();
+    std::atomic_int successful_searches(0);
+
+    auto parallel_knn_search = [](AsyncJob *job) {
+        auto *search_job = reinterpret_cast<tieredIndexMock::SearchJobMock *>(job);
+        size_t k = search_job->k;
+        auto query = search_job->query;
+        // In this test we don't care about the results, just that the search doesn't crash
+        // and returns the correct number of valid results.
+        auto verify_res = [&](size_t id, double score, size_t res_index) {};
+        runTopKSearchTest(job->index, query, k, verify_res);
+        (*search_job->successful_searches)++;
+        delete job;
+    };
+
+    // Insert vectors in parallel to search.
+    for (size_t i = 0; i < n; i++) {
+        GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, i % n_labels, i);
+        auto query = (TEST_DATA_T *)allocator->allocate(dim * sizeof(TEST_DATA_T));
+        GenerateVector<TEST_DATA_T>(query, dim, (TEST_DATA_T)n / 4 + (i % 1000) * M_PI);
+        auto search_job = new (allocator) tieredIndexMock::SearchJobMock(
+            allocator, parallel_knn_search, tiered_index, k, query, n, dim, &successful_searches);
+        tiered_index->submitSingleJob(search_job);
+    }
+
+    mock_thread_pool.thread_pool_join();
+
+    auto sz_f = tiered_index->GetFlatIndex()->indexSize();
+    auto sz_b = tiered_index->GetBackendIndex()->indexSize();
+    EXPECT_EQ(sz_f + sz_b, n);
+    EXPECT_EQ(successful_searches, n);
+    EXPECT_EQ(mock_thread_pool.jobQ.size(), 0);
+}
+
+/*
+TYPED_TEST(SVSTieredIndexTest, deleteFromSVSBasic) {
+    // Create TieredSVS index instance with a mock queue.
+    size_t dim = 4;
+
+    SVSParams params = {.type = TypeParam::get_index_type(),
+                         .dim = dim,
+                         .metric = VecSimMetric_L2,
+                         .multi = false};
+    VecSimParams svs_params = CreateParams(params);
+
+    auto mock_thread_pool = tieredIndexMock();
+
+    auto *tiered_index = this->CreateTieredSVSIndex(svs_params, mock_thread_pool);
+    auto allocator = tiered_index->getAllocator();
+
+    // Delete a non existing label.
+    ASSERT_EQ(tiered_index->deleteLabelFromSVS(0), 0);
+    ASSERT_EQ(mock_thread_pool.jobQ.size(), 0);
+
+    // Insert one vector to SVS and then delete it (it should have no neighbors to repair).
+    GenerateAndAddVector<TEST_DATA_T>(tiered_index->backendIndex, dim, 0);
+    ASSERT_EQ(tiered_index->deleteLabelFromSVS(0), 1);
+    ASSERT_EQ(mock_thread_pool.jobQ.size(), 0);
+
+    // Add another vector and remove it. Since the other vector in the index has marked deleted,
+    // this vector should have no neighbors, and again, no neighbors to repair.
+    GenerateAndAddVector<TEST_DATA_T>(tiered_index->backendIndex, dim, 1, 1);
+    ASSERT_EQ(tiered_index->deleteLabelFromSVS(1), 1);
+    ASSERT_EQ(mock_thread_pool.jobQ.size(), 0);
+
+    // Add two vectors and delete one, expect that at backendIndex one repair job will be created.
+    GenerateAndAddVector<TEST_DATA_T>(tiered_index->backendIndex, dim, 2, 2);
+    GenerateAndAddVector<TEST_DATA_T>(tiered_index->backendIndex, dim, 3, 3);
+    ASSERT_EQ(tiered_index->deleteLabelFromSVS(3), 1);
+
+    // The first job should be a repair job of the first inserted non-deleted node id (2)
+    // in level 0.
+    ASSERT_EQ(mock_thread_pool.jobQ.size(), 1);
+    ASSERT_EQ(mock_thread_pool.jobQ.front().job->jobType, SVS_REPAIR_NODE_CONNECTIONS_JOB);
+    ASSERT_EQ(((SVSRepairJob *)(mock_thread_pool.jobQ.front().job))->node_id, 2);
+    ASSERT_EQ(((SVSRepairJob *)(mock_thread_pool.jobQ.front().job))->level, 0);
+    ASSERT_EQ(tiered_index->idToRepairJobs.size(), 1);
+    ASSERT_GE(tiered_index->idToRepairJobs.at(2).size(), 1);
+    ASSERT_EQ(tiered_index->idToRepairJobs.at(2)[0]->associatedSwapJobs.size(), 1);
+    ASSERT_EQ(tiered_index->idToRepairJobs.at(2)[0]->associatedSwapJobs[0]->deleted_id, 3);
+
+    ASSERT_EQ(tiered_index->indexSize(), 4);
+    ASSERT_EQ(tiered_index->getSVSIndex()->getNumMarkedDeleted(), 3);
+    ASSERT_EQ(tiered_index->idToSwapJob.size(), 3);
+}
+*/
+
 /*
 TYPED_TEST(SVSTieredIndexTest, testSizeEstimation) {
     size_t dim = 128;
@@ -595,313 +853,6 @@ TYPED_TEST(SVSTieredIndexTest, testSizeEstimation) {
     // We check that the actual size is within 1% of the estimation.
     ASSERT_GE(estimation, actual * 0.99);
     ASSERT_LE(estimation, actual * 1.01);
-}
-
-TYPED_TEST(SVSTieredIndexTest, manageIndexOwnership) {
-
-    // Create TieredSVS index instance with a mock queue.
-    size_t dim = 4;
-    SVSParams params = {.type = TypeParam::get_index_type(),
-                         .dim = dim,
-                         .metric = VecSimMetric_L2,
-                         .multi = TypeParam::isMulti()};
-    VecSimParams svs_params = CreateParams(params);
-    auto mock_thread_pool = tieredIndexMock();
-
-    auto *tiered_index = this->CreateTieredSVSIndex(svs_params, mock_thread_pool);
-
-    // Get the allocator from the tiered index.
-    auto allocator = tiered_index->getAllocator();
-
-    EXPECT_EQ(mock_thread_pool.ctx->index_strong_ref.use_count(), 1);
-    size_t initial_mem = allocator->getAllocationSize();
-
-    // Create a dummy job callback that insert one vector to the underline SVS index.
-    auto dummy_job = [](AsyncJob *job) {
-        auto *my_index = reinterpret_cast<TieredSVSIndex<TEST_DATA_T, TEST_DIST_T> *>(job->index);
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-        size_t dim = 4;
-        TEST_DATA_T vector[dim];
-        GenerateVector<TEST_DATA_T>(vector, dim);
-        my_index->backendIndex->addVector(vector, my_index->backendIndex->indexSize());
-    };
-
-    std::atomic_int successful_executions(0);
-    auto job1 =
-        new (allocator) AsyncJob(allocator, SVS_INSERT_VECTOR_JOB, dummy_job, tiered_index);
-    auto job2 =
-        new (allocator) AsyncJob(allocator, SVS_INSERT_VECTOR_JOB, dummy_job, tiered_index);
-
-    // Wrap this job with an array and submit the jobs to the queue.
-    tiered_index->submitSingleJob(job1);
-    tiered_index->submitSingleJob(job2);
-    ASSERT_EQ(mock_thread_pool.jobQ.size(), 2);
-
-    // Execute the job from the queue asynchronously, delete the index in the meantime.
-    auto run_fn = [&successful_executions, &mock_thread_pool]() {
-        // Create a temporary strong reference of the index from the weak reference that the
-        // job holds, to ensure that the index is not deleted while the job is running.
-        if (auto temp_ref = mock_thread_pool.jobQ.front().index_weak_ref.lock()) {
-            // At this point we wish to validate that we have both the index strong ref (stored
-            // in index_ctx) and the weak ref owned by the job (that we currently promoted).
-            EXPECT_EQ(mock_thread_pool.jobQ.front().index_weak_ref.use_count(), 2);
-
-            mock_thread_pool.jobQ.front().job->Execute(mock_thread_pool.jobQ.front().job);
-            successful_executions++;
-        }
-        mock_thread_pool.jobQ.kick();
-    };
-    std::thread t1(run_fn);
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    // Delete the index while the job is still running, to ensure that the weak ref protects
-    // the index.
-    mock_thread_pool.reset_ctx();
-    EXPECT_EQ(mock_thread_pool.jobQ.front().index_weak_ref.use_count(), 1);
-    t1.join();
-    // Expect that the first job will succeed.
-    ASSERT_EQ(successful_executions, 1);
-
-    // The second job should not run, since the weak reference is not supposed to become a
-    // strong references now.
-    ASSERT_EQ(mock_thread_pool.jobQ.size(), 1);
-    ASSERT_EQ(mock_thread_pool.jobQ.front().index_weak_ref.use_count(), 0);
-    std::thread t2(run_fn);
-    t2.join();
-    // Expect that the second job is ot successful.
-    ASSERT_EQ(successful_executions, 1);
-}
-
-TYPED_TEST(SVSTieredIndexTest, parallelSearch) {
-    size_t dim = 4;
-    size_t k = 10;
-    size_t n = 2000;
-    bool isMulti = TypeParam::isMulti();
-
-    // Create TieredSVS index instance with a mock queue.
-    SVSParams params = {
-        .type = TypeParam::get_index_type(),
-        .dim = dim,
-        .metric = VecSimMetric_L2,
-        .multi = isMulti,
-        .efRuntime = n,
-    };
-    VecSimParams svs_params = CreateParams(params);
-    auto mock_thread_pool = tieredIndexMock();
-
-    auto *tiered_index = this->CreateTieredSVSIndex(svs_params, mock_thread_pool);
-    auto allocator = tiered_index->getAllocator();
-    EXPECT_EQ(mock_thread_pool.ctx->index_strong_ref.use_count(), 1);
-
-    std::atomic_int successful_searches(0);
-    auto parallel_knn_search = [](AsyncJob *job) {
-        auto *search_job = reinterpret_cast<tieredIndexMock::SearchJobMock *>(job);
-        size_t k = search_job->k;
-        size_t dim = search_job->dim;
-        auto query = search_job->query;
-
-        auto verify_res = [&](size_t id, double score, size_t res_index) {
-            TEST_DATA_T element = *(TEST_DATA_T *)query;
-            ASSERT_EQ(std::abs(id - element), (res_index + 1) / 2);
-            ASSERT_EQ(score, dim * (id - element) * (id - element));
-        };
-        runTopKSearchTest(job->index, query, k, verify_res);
-        (*search_job->successful_searches)++;
-        delete job;
-    };
-
-    size_t per_label = isMulti ? 10 : 1;
-    size_t n_labels = n / per_label;
-
-    // Fill the job queue with insert and search jobs, while filling the flat index, before
-    // initializing the thread pool.
-    for (size_t i = 0; i < n; i++) {
-        // Insert a vector to the flat index and add a job to insert it to the main index.
-        GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, i % n_labels, i);
-
-        // Add a search job. Make sure the query element is between k and n - k.
-        auto query = (TEST_DATA_T *)allocator->allocate(dim * sizeof(TEST_DATA_T));
-        GenerateVector<TEST_DATA_T>(query, dim, (i % (n_labels - (2 * k))) + k);
-        auto search_job = new (allocator) tieredIndexMock::SearchJobMock(
-            allocator, parallel_knn_search, tiered_index, k, query, n, dim, &successful_searches);
-        tiered_index->submitSingleJob(search_job);
-    }
-
-    EXPECT_EQ(tiered_index->indexSize(), n);
-    EXPECT_EQ(tiered_index->indexLabelCount(), n_labels);
-    EXPECT_EQ(tiered_index->labelToInsertJobs.size(), n_labels);
-    for (auto &it : tiered_index->labelToInsertJobs) {
-        EXPECT_EQ(it.second.size(), per_label);
-    }
-    EXPECT_EQ(tiered_index->frontendIndex->indexSize(), n);
-    EXPECT_EQ(tiered_index->backendIndex->indexSize(), 0);
-
-    // Launch the BG threads loop that takes jobs from the queue and executes them.
-    // All the vectors are already in the tiered index, so we expect to find the expected
-    // results from the get-go.
-    mock_thread_pool.init_threads();
-    mock_thread_pool.thread_pool_join();
-
-    EXPECT_EQ(tiered_index->backendIndex->indexSize(), n);
-    EXPECT_EQ(tiered_index->backendIndex->indexLabelCount(), n_labels);
-    EXPECT_EQ(tiered_index->frontendIndex->indexSize(), 0);
-    EXPECT_EQ(tiered_index->labelToInsertJobs.size(), 0);
-    EXPECT_EQ(successful_searches, n);
-    EXPECT_EQ(mock_thread_pool.jobQ.size(), 0);
-}
-
-TYPED_TEST(SVSTieredIndexTest, parallelInsertSearch) {
-    size_t dim = 4;
-    size_t k = 10;
-    size_t n = 3000;
-
-    size_t block_size = n / 100;
-
-    bool isMulti = TypeParam::isMulti();
-
-    // Create TieredSVS index instance with a mock queue.
-    size_t n_labels = isMulti ? n / 25 : n;
-    SVSParams params = {
-        .type = TypeParam::get_index_type(),
-        .dim = dim,
-        .metric = VecSimMetric_L2,
-        .multi = isMulti,
-        .blockSize = block_size,
-    };
-    VecSimParams svs_params = CreateParams(params);
-    auto mock_thread_pool = tieredIndexMock();
-
-    auto *tiered_index = this->CreateTieredSVSIndex(svs_params, mock_thread_pool);
-    auto allocator = tiered_index->getAllocator();
-    EXPECT_EQ(mock_thread_pool.ctx->index_strong_ref.use_count(), 1);
-
-    // Launch the BG threads loop that takes jobs from the queue and executes them.
-    // Save the number fo tasks done by thread i in the i-th entry.
-    std::vector<size_t> completed_tasks(mock_thread_pool.thread_pool_size, 0);
-    mock_thread_pool.init_threads();
-    std::atomic_int successful_searches(0);
-
-    auto parallel_knn_search = [](AsyncJob *job) {
-        auto *search_job = reinterpret_cast<tieredIndexMock::SearchJobMock *>(job);
-        size_t k = search_job->k;
-        auto query = search_job->query;
-        // In this test we don't care about the results, just that the search doesn't crash
-        // and returns the correct number of valid results.
-        auto verify_res = [&](size_t id, double score, size_t res_index) {};
-        runTopKSearchTest(job->index, query, k, verify_res);
-        (*search_job->successful_searches)++;
-        delete job;
-    };
-
-    // Insert vectors in parallel to search.
-    for (size_t i = 0; i < n; i++) {
-        GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, i % n_labels, i);
-        auto query = (TEST_DATA_T *)allocator->allocate(dim * sizeof(TEST_DATA_T));
-        GenerateVector<TEST_DATA_T>(query, dim, (TEST_DATA_T)n / 4 + (i % 1000) * M_PI);
-        auto search_job = new (allocator) tieredIndexMock::SearchJobMock(
-            allocator, parallel_knn_search, tiered_index, k, query, n, dim, &successful_searches);
-        tiered_index->submitSingleJob(search_job);
-    }
-
-    mock_thread_pool.thread_pool_join();
-
-    EXPECT_EQ(successful_searches, n);
-    EXPECT_EQ(tiered_index->backendIndex->indexSize(), n);
-    EXPECT_EQ(tiered_index->backendIndex->indexLabelCount(), n_labels);
-    EXPECT_EQ(tiered_index->frontendIndex->indexSize(), 0);
-    EXPECT_EQ(tiered_index->labelToInsertJobs.size(), 0);
-    EXPECT_EQ(mock_thread_pool.jobQ.size(), 0);
-}
-
-TYPED_TEST(SVSTieredIndexTestBasic, MergeMulti) {
-    size_t dim = 4;
-
-    // Create TieredSVS index instance with a mock queue.
-    SVSParams params = {
-        .type = TypeParam::get_index_type(),
-        .dim = dim,
-        .metric = VecSimMetric_L2,
-        .multi = true,
-    };
-    VecSimParams svs_params = CreateParams(params);
-    auto mock_thread_pool = tieredIndexMock();
-
-    auto *tiered_index = this->CreateTieredSVSIndex(svs_params, mock_thread_pool);
-    auto allocator = tiered_index->getAllocator();
-
-    auto svs_index = tiered_index->backendIndex;
-    auto flat_index = tiered_index->frontendIndex;
-
-    // Insert vectors with label 0 to SVS only.
-    GenerateAndAddVector<TEST_DATA_T>(svs_index, dim, 0, 0);
-    GenerateAndAddVector<TEST_DATA_T>(svs_index, dim, 0, 1);
-    GenerateAndAddVector<TEST_DATA_T>(svs_index, dim, 0, 2);
-    // Insert vectors with label 1 to flat buffer only.
-    GenerateAndAddVector<TEST_DATA_T>(flat_index, dim, 1, 0);
-    GenerateAndAddVector<TEST_DATA_T>(flat_index, dim, 1, 1);
-    GenerateAndAddVector<TEST_DATA_T>(flat_index, dim, 1, 2);
-    // Insert DIFFERENT vectors with label 2 to both SVS and flat buffer.
-    GenerateAndAddVector<TEST_DATA_T>(svs_index, dim, 2, 0);
-    GenerateAndAddVector<TEST_DATA_T>(flat_index, dim, 2, 1);
-
-    TEST_DATA_T query[dim];
-    GenerateVector<TEST_DATA_T>(query, dim, 0);
-
-    // Search in the tiered index for more vectors than it has. Merging the results from the two
-    // indexes should result in a list of unique vectors, even if the scores of the duplicates are
-    // different.
-    runTopKSearchTest(tiered_index, query, 5, 3, [](size_t _, double __, size_t ___) {});
-}
-
-TYPED_TEST(SVSTieredIndexTest, deleteFromSVSBasic) {
-    // Create TieredSVS index instance with a mock queue.
-    size_t dim = 4;
-    bool isMulti = TypeParam::isMulti();
-
-    SVSParams params = {.type = TypeParam::get_index_type(),
-                         .dim = dim,
-                         .metric = VecSimMetric_L2,
-                         .multi = isMulti};
-    VecSimParams svs_params = CreateParams(params);
-
-    auto mock_thread_pool = tieredIndexMock();
-
-    auto *tiered_index = this->CreateTieredSVSIndex(svs_params, mock_thread_pool);
-    auto allocator = tiered_index->getAllocator();
-
-    // Delete a non existing label.
-    ASSERT_EQ(tiered_index->deleteLabelFromSVS(0), 0);
-    ASSERT_EQ(mock_thread_pool.jobQ.size(), 0);
-
-    // Insert one vector to SVS and then delete it (it should have no neighbors to repair).
-    GenerateAndAddVector<TEST_DATA_T>(tiered_index->backendIndex, dim, 0);
-    ASSERT_EQ(tiered_index->deleteLabelFromSVS(0), 1);
-    ASSERT_EQ(mock_thread_pool.jobQ.size(), 0);
-
-    // Add another vector and remove it. Since the other vector in the index has marked deleted,
-    // this vector should have no neighbors, and again, no neighbors to repair.
-    GenerateAndAddVector<TEST_DATA_T>(tiered_index->backendIndex, dim, 1, 1);
-    ASSERT_EQ(tiered_index->deleteLabelFromSVS(1), 1);
-    ASSERT_EQ(mock_thread_pool.jobQ.size(), 0);
-
-    // Add two vectors and delete one, expect that at backendIndex one repair job will be created.
-    GenerateAndAddVector<TEST_DATA_T>(tiered_index->backendIndex, dim, 2, 2);
-    GenerateAndAddVector<TEST_DATA_T>(tiered_index->backendIndex, dim, 3, 3);
-    ASSERT_EQ(tiered_index->deleteLabelFromSVS(3), 1);
-
-    // The first job should be a repair job of the first inserted non-deleted node id (2)
-    // in level 0.
-    ASSERT_EQ(mock_thread_pool.jobQ.size(), 1);
-    ASSERT_EQ(mock_thread_pool.jobQ.front().job->jobType, SVS_REPAIR_NODE_CONNECTIONS_JOB);
-    ASSERT_EQ(((SVSRepairJob *)(mock_thread_pool.jobQ.front().job))->node_id, 2);
-    ASSERT_EQ(((SVSRepairJob *)(mock_thread_pool.jobQ.front().job))->level, 0);
-    ASSERT_EQ(tiered_index->idToRepairJobs.size(), 1);
-    ASSERT_GE(tiered_index->idToRepairJobs.at(2).size(), 1);
-    ASSERT_EQ(tiered_index->idToRepairJobs.at(2)[0]->associatedSwapJobs.size(), 1);
-    ASSERT_EQ(tiered_index->idToRepairJobs.at(2)[0]->associatedSwapJobs[0]->deleted_id, 3);
-
-    ASSERT_EQ(tiered_index->indexSize(), 4);
-    ASSERT_EQ(tiered_index->getSVSIndex()->getNumMarkedDeleted(), 3);
-    ASSERT_EQ(tiered_index->idToSwapJob.size(), 3);
 }
 
 TYPED_TEST(SVSTieredIndexTestBasic, deleteFromSVSMulti) {

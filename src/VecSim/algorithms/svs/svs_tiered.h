@@ -248,13 +248,17 @@ public:
         return result;
     }
 
-    backend_index_t *GetBackendIndex() { return this->backendIndex; }
-
     svs_index_t *GetSVSIndex() {
         auto result = dynamic_cast<svs_index_t *>(this->backendIndex);
         assert(result);
         return result;
     }
+
+#ifdef BUILD_TESTS
+public:
+    backend_index_t *GetBackendIndex() { return this->backendIndex; }
+    void submitSingleJob(AsyncJob *job) { Base::submitSingleJob(job); }
+#endif
 
 private:
     void TakeSnapshot(std::set<labelType> *to_delete, std::set<labelType> *to_add) {
