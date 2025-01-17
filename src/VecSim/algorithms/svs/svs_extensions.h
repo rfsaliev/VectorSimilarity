@@ -9,11 +9,8 @@
 #pragma once
 #include "VecSim/algorithms/svs/svs_utils.h"
 
-// TODO(rfsaliev) to be detected and defined via cmake config
-#define LVQ_EXISTS 1
-
-#if LVQ_EXISTS
-#include "svs/extensions/vamana/lvq.h"
+#if HAVE_SVS_LVQ
+#include "svs/quantization/lvq/impl/lvq_impl.h"
 
 namespace details {
 template <size_t Primary, size_t Residual>
@@ -76,4 +73,6 @@ struct SVSStorageTraits<DataType, QuantBits, ResidualBits, std::enable_if_t<(Qua
         return primary_type::compute_data_dimensions(layout_type{layout_dims}, alignment);
     }
 };
-#endif // LVQ_EXISTS
+#else
+#pragma message "SVS LVQ is not available"
+#endif // HAVE_SVS_LVQ

@@ -1506,7 +1506,7 @@ TYPED_TEST(SVSTest, svs_vector_search_test_cosine) {
 
 TYPED_TEST(SVSTest, testSizeEstimation) {
     size_t dim = 128;
-#if LVQ_EXISTS
+#if HAVE_SVS_LVQ
     // FIXME(rfsaliev) SVS block sizes always rounded to a power of 2
     // This why, in case of quantization, actual block size can be differ than requested
     // In addition, block size to be passed to graph and dataset counted in bytes,
