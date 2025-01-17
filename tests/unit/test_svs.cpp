@@ -1585,7 +1585,7 @@ TYPED_TEST(SVSTest, testInitialSizeEstimationWithInitialCapacity) {
     VecSimIndex_Free(index);
 }
 
-TYPED_TEST(SVSTest, testTimeoutReturn) {
+TYPED_TEST(SVSTest, testTimeoutReturn_topK) {
     size_t dim = 4;
     VecSimQueryReply *rep;
 
@@ -1617,7 +1617,38 @@ TYPED_TEST(SVSTest, testTimeoutReturn) {
     ASSERT_EQ(VecSimQueryReply_Len(rep), 0);
     VecSimQueryReply_Free(rep);
 
-    // Check timeout again - range query
+    VecSimIndex_Free(index);
+    VecSim_SetTimeoutCallbackFunction([](void *ctx) { return 0; }); // cleanup
+}
+
+TYPED_TEST(SVSTest, testTimeoutReturn_range) {
+    size_t dim = 4;
+    VecSimQueryReply *rep;
+
+    SVSParams params = {
+        .dim = dim,
+        .metric = VecSimMetric_L2,
+        .initialCapacity = 1,
+        .blockSize = 5,
+        /* SVS-Vamana specifics */
+        .alpha = 1.2,
+        .graph_max_degree = 64,
+        .construction_window_size = 20,
+        .max_candidate_pool_size = 1024,
+        .prune_to = 60,
+        .use_search_history = VecSimOption_ENABLE,
+    };
+
+    VecSimIndex *index = this->CreateNewIndex(params);
+
+    VecSim_SetTimeoutCallbackFunction([](void *ctx) { return 1; }); // Always times out
+
+    TEST_DATA_T vec[dim];
+    GenerateVector<TEST_DATA_T>(vec, dim);
+
+    VecSimIndex_AddVector(index, vec, 0);
+
+    // Checks return code on timeout - range query
     rep = VecSimIndex_RangeQuery(index, vec, 1, NULL, BY_ID);
     ASSERT_EQ(VecSimQueryReply_GetCode(rep), VecSim_QueryReply_TimedOut);
     ASSERT_EQ(VecSimQueryReply_Len(rep), 0);

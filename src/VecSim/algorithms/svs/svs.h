@@ -328,7 +328,17 @@ public:
         if (get_vamana()->get_num_threads() != queries.size()) {
             get_vamana()->set_num_threads(queries.size());
         }
-        get_vamana()->search(result.view(), queries, sp);
+
+        auto timeoutCtx = queryParams ? queryParams->timeoutCtx : nullptr;
+        auto cancel = [timeoutCtx]() {
+            return VECSIM_TIMEOUT(timeoutCtx);
+        };
+
+        get_vamana()->search(result.view(), queries, sp, cancel);
+        if (cancel()){
+            rep->code = VecSim_QueryReply_TimedOut;
+            return rep;
+        }
 
         assert(result.n_queries() == 1);
 
