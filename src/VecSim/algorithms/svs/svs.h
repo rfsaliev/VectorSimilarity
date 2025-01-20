@@ -356,6 +356,11 @@ public:
             return rep;
         }
 
+        auto timeoutCtx = queryParams ? queryParams->timeoutCtx : nullptr;
+        auto cancel = [timeoutCtx]() {
+            return VECSIM_TIMEOUT(timeoutCtx);
+        };
+
         auto sp = details::joinSearchParams(get_vamana()->get_search_parameters(), queryParams);
         const size_t batch_size = queryParams && queryParams->batchSize
                                       ? queryParams->batchSize
@@ -365,7 +370,12 @@ public:
         std::span<const data_type> query{reinterpret_cast<const data_type *>(queryBlob),
                                          params_.dim};
         svs::index::vamana::BatchIterator<impl_type, data_type> svs_it{*get_vamana(), query,
-                                                                       schedule};
+                                                                       schedule, cancel};
+
+        if (cancel()){
+            rep->code = VecSim_QueryReply_TimedOut;
+            return rep;
+        }
 
         int batch_times = 3;
         bool done = false;
@@ -382,7 +392,11 @@ public:
             if (done)
                 if (--batch_times == 0)
                     break;
-            svs_it.next();
+            svs_it.next(cancel);
+            if (cancel()){
+                rep->code = VecSim_QueryReply_TimedOut;
+                return rep;
+            }
         }
         return rep;
     }

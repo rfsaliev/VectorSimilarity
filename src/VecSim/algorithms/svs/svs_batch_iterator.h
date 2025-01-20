@@ -42,16 +42,35 @@ private:
         auto schedule = svs::index::vamana::DefaultSchedule{sp, batch_size};
         std::span<const DataType> query{reinterpret_cast<DataType *>(query_vector),
                                         index->dimensions()};
+
+        auto timeoutCtx = queryParams ? queryParams->timeoutCtx : nullptr;
+        auto cancel = [timeoutCtx]() {
+            return VECSIM_TIMEOUT(timeoutCtx);
+        };
         return std::make_unique<svs::index::vamana::BatchIterator<Index, DataType>>(*index, query,
-                                                                                    schedule);
+                                                                                    schedule, cancel);
     }
 
     VecSimQueryReply *getNextResultsImpl(size_t n_res) {
         auto rep = new VecSimQueryReply(this->allocator);
+        rep->results.reserve(n_res);
+        auto timeoutCtx = this->getTimeoutCtx();
+        auto cancel = [timeoutCtx]() {
+            return VECSIM_TIMEOUT(timeoutCtx);
+        };
+
+        if (cancel()) {
+            rep->code = VecSim_QueryReply_TimedOut;
+            return rep;
+        }
         // TODO(rfsaliev) verify iteration logic:
         for (size_t i = 0; i < n_res; i++) {
             if (curr_it == impl_->end()) {
-                impl_->next();
+                impl_->next(cancel);
+                if (cancel()) {
+                    rep->code = VecSim_QueryReply_TimedOut;
+                    return rep;
+                }
                 curr_it = impl_->begin();
                 if (impl_->size() == 0) {
                     return rep;
@@ -59,7 +78,7 @@ private:
             }
             rep->results.push_back(VecSimQueryResult{
                 curr_it->id(), details::toVecSimDistance<dist_type>(curr_it->distance())});
-            curr_it++;
+            ++curr_it;
         }
         return rep;
     }
@@ -85,7 +104,11 @@ public:
     void reset() override {
         std::span<const DataType> query{reinterpret_cast<const DataType *>(this->getQueryBlob()),
                                         this->dim};
-        impl_->update(query);
+        auto timeoutCtx = this->getTimeoutCtx();
+        auto cancel = [timeoutCtx]() {
+            return VECSIM_TIMEOUT(timeoutCtx);
+        };
+        impl_->update(query, cancel);
         curr_it = impl_->begin();
     }
 };
