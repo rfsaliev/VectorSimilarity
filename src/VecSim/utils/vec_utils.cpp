@@ -52,6 +52,8 @@ const char *VecSimCommonStrings::HNSW_MAX_LEVEL = "MAX_LEVEL";
 const char *VecSimCommonStrings::HNSW_ENTRYPOINT = "ENTRYPOINT";
 const char *VecSimCommonStrings::HNSW_NUM_MARKED_DELETED = "NUMBER_OF_MARKED_DELETED";
 
+const char *VecSimCommonStrings::SVS_WS_SEARCH_STRING = "WS_SEARCH";
+
 const char *VecSimCommonStrings::BLOCK_SIZE_STRING = "BLOCK_SIZE";
 const char *VecSimCommonStrings::SEARCH_MODE_STRING = "LAST_SEARCH_MODE";
 const char *VecSimCommonStrings::HYBRID_POLICY_STRING = "HYBRID_POLICY";

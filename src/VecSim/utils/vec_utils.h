@@ -53,6 +53,8 @@ public:
     static const char *HNSW_NUM_MARKED_DELETED;
     // static const char *HNSW_VISITED_NODES_POOL_SIZE_STRING;
 
+    static const char *SVS_WS_SEARCH_STRING;
+
     static const char *BLOCK_SIZE_STRING;
     static const char *SEARCH_MODE_STRING;
     static const char *HYBRID_POLICY_STRING;
