@@ -16,6 +16,24 @@
 #include "spdlog/sinks/callback_sink.h"
 
 namespace details {
+// VecSim->SVS data type conversion
+template <typename T>
+struct vecsim_dtype;
+
+template <>
+struct vecsim_dtype<float> {
+    using type = float;
+};
+
+template <>
+struct vecsim_dtype<svs::Float16> {
+    using type = vecsim_types::float16;
+};
+
+template <typename T>
+using vecsim_dt = typename vecsim_dtype<T>::type;
+
+// SVS->VecSim distance conversion
 template <typename DistType>
 float toVecSimDistance(float);
 
@@ -32,13 +50,6 @@ inline float toVecSimDistance<svs::distance::DistanceIP>(float v) {
 template <>
 inline float toVecSimDistance<svs::distance::DistanceCosineSimilarity>(float v) {
     return 1.f - v;
-}
-
-template <typename DistType, typename Idx>
-VecSimQueryResult makeVecSimQueryResult(const svs::QueryResult<Idx> &result, size_t query,
-                                        size_t neighbor) {
-    return VecSimQueryResult{result.index(query, neighbor),
-                             toVecSimDistance<DistType>(result.distance(query, neighbor))};
 }
 
 template <typename Ea, typename Eb, size_t Da, size_t Db>
@@ -60,6 +71,7 @@ float computeVecSimDistance(svs::distance::DistanceCosineSimilarity /*dist*/, st
     return computeVecSimDistance(svs::distance::DistanceIP{}, a, b);
 }
 
+// VecSim allocator wrapper for SVS containers
 template <typename T>
 struct SVSAllocator {
 private:
@@ -167,7 +179,8 @@ struct SVSGraphBuilder {
                                   const Data &data, DistType distance, Pool &threadpool,
                                   Idx entry_point, size_t block_size,
                                   std::shared_ptr<VecSimAllocator> allocator) {
-        auto svs_bs = details::SVSBlockSize(block_size, (parameters.graph_max_degree + 1) * sizeof(Idx));
+        auto svs_bs =
+            details::SVSBlockSize(block_size, (parameters.graph_max_degree + 1) * sizeof(Idx));
         // Perform graph construction.
         allocator_type data_allocator{std::move(allocator)};
         blocked_type blocked_alloc{{svs_bs}, data_allocator};

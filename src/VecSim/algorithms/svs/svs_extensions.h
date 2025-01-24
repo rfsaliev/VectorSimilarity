@@ -47,21 +47,6 @@ struct SVSStorageTraits<DataType, QuantBits, ResidualBits, std::enable_if_t<(Qua
         allocator_type data_allocator{std::move(allocator)};
         blocked_type blocked_alloc{{svs_bs}, data_allocator};
 
-        // FIXME(rfsaliev) svs::quantization::lvq::VectorBias to be fixed to support
-        // ConstSimpleDataView here:
-        /*
-        --- a/include/svs/quantization/lvq/ops.h
-        +++ b/include/svs/quantization/lvq/ops.h
-        @@ -169,7 +169,7 @@ template <typename T> class ScaleShift {
-        struct VectorBias : public DatasetPreOpBase {
-            static std::string name() { return "preop-vector-bias"; }
-
-        -    template <typename T> using element_type_t = typename T::element_type;
-        +    template <typename T> using element_type_t = std::remove_cv_t<typename
-        T::element_type>; using misc_type = std::vector<double>;
-
-            ///
-        */
         return index_storage_type::compress(data, blocked_alloc);
     }
 

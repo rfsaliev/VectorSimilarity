@@ -25,15 +25,14 @@
 template <typename Index, typename DataType>
 class SVS_BatchIterator : public VecSimBatchIterator {
 private:
-    size_t dim;
-
     using impl_type = svs::index::vamana::BatchIterator<Index, DataType>;
     using dist_type = typename Index::distance_type;
+    std::shared_ptr<Index> index_;
     std::unique_ptr<impl_type> impl_;
     decltype(impl_->begin()) curr_it;
 
-    static std::unique_ptr<impl_type> make_impl(const Index *index, void *query_vector,
-                                                VecSimQueryParams *queryParams) {
+    static std::unique_ptr<impl_type> makeImpl(const std::shared_ptr<Index> &index,
+                                               void *query_vector, VecSimQueryParams *queryParams) {
         auto sp = details::joinSearchParams(index->get_search_parameters(), queryParams);
         const size_t batch_size = queryParams && queryParams->batchSize
                                       ? queryParams->batchSize
@@ -44,20 +43,16 @@ private:
                                         index->dimensions()};
 
         auto timeoutCtx = queryParams ? queryParams->timeoutCtx : nullptr;
-        auto cancel = [timeoutCtx]() {
-            return VECSIM_TIMEOUT(timeoutCtx);
-        };
-        return std::make_unique<svs::index::vamana::BatchIterator<Index, DataType>>(*index, query,
-                                                                                    schedule, cancel);
+        auto cancel = [timeoutCtx]() { return VECSIM_TIMEOUT(timeoutCtx); };
+        return std::make_unique<svs::index::vamana::BatchIterator<Index, DataType>>(
+            *index, query, schedule, cancel);
     }
 
     VecSimQueryReply *getNextResultsImpl(size_t n_res) {
         auto rep = new VecSimQueryReply(this->allocator);
         rep->results.reserve(n_res);
         auto timeoutCtx = this->getTimeoutCtx();
-        auto cancel = [timeoutCtx]() {
-            return VECSIM_TIMEOUT(timeoutCtx);
-        };
+        auto cancel = [timeoutCtx]() { return VECSIM_TIMEOUT(timeoutCtx); };
 
         if (cancel()) {
             rep->code = VecSim_QueryReply_TimedOut;
@@ -84,11 +79,11 @@ private:
     }
 
 public:
-    SVS_BatchIterator(void *query_vector, Index *index, VecSimQueryParams *queryParams,
-                      std::shared_ptr<VecSimAllocator> allocator)
+    SVS_BatchIterator(void *query_vector, const std::shared_ptr<Index> &index,
+                      VecSimQueryParams *queryParams, std::shared_ptr<VecSimAllocator> allocator)
         : VecSimBatchIterator{query_vector, queryParams ? queryParams->timeoutCtx : nullptr,
-                              allocator},
-          dim{index->dimensions()}, impl_{make_impl(index, query_vector, queryParams)} {
+                              std::move(allocator)},
+          index_{index}, impl_{makeImpl(index, query_vector, queryParams)} {
         curr_it = impl_->begin();
     }
 
@@ -103,11 +98,9 @@ public:
 
     void reset() override {
         std::span<const DataType> query{reinterpret_cast<const DataType *>(this->getQueryBlob()),
-                                        this->dim};
+                                        index_->dimensions()};
         auto timeoutCtx = this->getTimeoutCtx();
-        auto cancel = [timeoutCtx]() {
-            return VECSIM_TIMEOUT(timeoutCtx);
-        };
+        auto cancel = [timeoutCtx]() { return VECSIM_TIMEOUT(timeoutCtx); };
         impl_->update(query, cancel);
         curr_it = impl_->begin();
     }
