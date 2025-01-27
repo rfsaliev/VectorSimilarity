@@ -140,6 +140,7 @@ typedef enum {
     VecSimQuant_NONE = VecSimQuant_0,
     VecSimQuant_8 = 8,
     VecSimQuant_4 = 4,
+    VecSimQuant_4x4 = 4 | (4 << 10),
     VecSimQuant_4x8 = 4 | (8 << 10)
 } VecSimQuantBits;
 

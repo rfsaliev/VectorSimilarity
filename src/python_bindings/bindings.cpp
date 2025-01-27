@@ -633,6 +633,7 @@ PYBIND11_MODULE(VecSim, m) {
         .value("VecSimQuant_NONE", VecSimQuant_NONE)
         .value("VecSimQuant_8", VecSimQuant_8)
         .value("VecSimQuant_4", VecSimQuant_4)
+        .value("VecSimQuant_4x4", VecSimQuant_4x4)
         .value("VecSimQuant_4x8", VecSimQuant_4x8)
         .export_values();
 

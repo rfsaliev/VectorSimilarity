@@ -30,6 +30,8 @@ VecSimIndex *NewIndexImplLVQ(const VecSimParams *params) {
         return NewIndexImpl<MetricType, DataType, 8>(params);
     case VecSimQuant_4:
         return NewIndexImpl<MetricType, DataType, 4>(params);
+    case VecSimQuant_4x4:
+        return NewIndexImpl<MetricType, DataType, 4, 4>(params);
     case VecSimQuant_4x8:
         return NewIndexImpl<MetricType, DataType, 4, 8>(params);
     default:
@@ -96,6 +98,8 @@ size_t SVSIndexVectorSize(VecSimQuantBits quant_bits, size_t dims, size_t alignm
         return SVSIndexVectorSize<DataType, 8>(dims, alignment);
     case VecSimQuant_4:
         return SVSIndexVectorSize<DataType, 4>(dims, alignment);
+    case VecSimQuant_4x4:
+        return SVSIndexVectorSize<DataType, 4, 4>(dims, alignment);
     case VecSimQuant_4x8:
         return SVSIndexVectorSize<DataType, 4, 8>(dims, alignment);
     default:
