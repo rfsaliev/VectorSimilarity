@@ -18,10 +18,9 @@ public:
     using data_t = typename index_type_t::data_t;
 
 protected:
-    // SVSIndex<data_t, dist_t> *CastToSVS(VecSimIndex *index) {
-    //     auto tiered_index = reinterpret_cast<TieredSVSIndex<data_t> *>(index);
-    //     return tiered_index->getSVSIndex();
-    // }
+    TieredSVSIndex<data_t> *CastToTieredSVS(VecSimIndex *index) {
+        return reinterpret_cast<TieredSVSIndex<data_t> *>(index);
+    }
 
     TieredIndexParams CreateTieredSVSParams(VecSimParams &svs_params,
                                             tieredIndexMock &mock_thread_pool,
@@ -732,73 +731,19 @@ TYPED_TEST(SVSTieredIndexTest, parallelInsertSearch) {
     EXPECT_EQ(mock_thread_pool.jobQ.size(), 0);
 }
 
-/*
-TYPED_TEST(SVSTieredIndexTest, deleteFromSVSBasic) {
-    // Create TieredSVS index instance with a mock queue.
-    size_t dim = 4;
-
-    SVSParams params = {.type = TypeParam::get_index_type(),
-                         .dim = dim,
-                         .metric = VecSimMetric_L2,
-                         .multi = false};
-    VecSimParams svs_params = CreateParams(params);
-
-    auto mock_thread_pool = tieredIndexMock();
-
-    auto *tiered_index = this->CreateTieredSVSIndex(svs_params, mock_thread_pool);
-    auto allocator = tiered_index->getAllocator();
-
-    // Delete a non existing label.
-    ASSERT_EQ(tiered_index->deleteLabelFromSVS(0), 0);
-    ASSERT_EQ(mock_thread_pool.jobQ.size(), 0);
-
-    // Insert one vector to SVS and then delete it (it should have no neighbors to repair).
-    GenerateAndAddVector<TEST_DATA_T>(tiered_index->backendIndex, dim, 0);
-    ASSERT_EQ(tiered_index->deleteLabelFromSVS(0), 1);
-    ASSERT_EQ(mock_thread_pool.jobQ.size(), 0);
-
-    // Add another vector and remove it. Since the other vector in the index has marked deleted,
-    // this vector should have no neighbors, and again, no neighbors to repair.
-    GenerateAndAddVector<TEST_DATA_T>(tiered_index->backendIndex, dim, 1, 1);
-    ASSERT_EQ(tiered_index->deleteLabelFromSVS(1), 1);
-    ASSERT_EQ(mock_thread_pool.jobQ.size(), 0);
-
-    // Add two vectors and delete one, expect that at backendIndex one repair job will be created.
-    GenerateAndAddVector<TEST_DATA_T>(tiered_index->backendIndex, dim, 2, 2);
-    GenerateAndAddVector<TEST_DATA_T>(tiered_index->backendIndex, dim, 3, 3);
-    ASSERT_EQ(tiered_index->deleteLabelFromSVS(3), 1);
-
-    // The first job should be a repair job of the first inserted non-deleted node id (2)
-    // in level 0.
-    ASSERT_EQ(mock_thread_pool.jobQ.size(), 1);
-    ASSERT_EQ(mock_thread_pool.jobQ.front().job->jobType, SVS_REPAIR_NODE_CONNECTIONS_JOB);
-    ASSERT_EQ(((SVSRepairJob *)(mock_thread_pool.jobQ.front().job))->node_id, 2);
-    ASSERT_EQ(((SVSRepairJob *)(mock_thread_pool.jobQ.front().job))->level, 0);
-    ASSERT_EQ(tiered_index->idToRepairJobs.size(), 1);
-    ASSERT_GE(tiered_index->idToRepairJobs.at(2).size(), 1);
-    ASSERT_EQ(tiered_index->idToRepairJobs.at(2)[0]->associatedSwapJobs.size(), 1);
-    ASSERT_EQ(tiered_index->idToRepairJobs.at(2)[0]->associatedSwapJobs[0]->deleted_id, 3);
-
-    ASSERT_EQ(tiered_index->indexSize(), 4);
-    ASSERT_EQ(tiered_index->getSVSIndex()->getNumMarkedDeleted(), 3);
-    ASSERT_EQ(tiered_index->idToSwapJob.size(), 3);
-}
-*/
-
-/*
 TYPED_TEST(SVSTieredIndexTest, testSizeEstimation) {
     size_t dim = 128;
     size_t n = DEFAULT_BLOCK_SIZE;
-    size_t M = 32;
+    size_t graph_degree = 31; // power of 2 - 1
     size_t bs = DEFAULT_BLOCK_SIZE;
-    bool isMulti = TypeParam::isMulti();
+    bool isMulti = false;
 
     SVSParams svs_params = {.type = TypeParam::get_index_type(),
                               .dim = dim,
                               .metric = VecSimMetric_L2,
                               .multi = isMulti,
                               .initialCapacity = n,
-                              .M = M};
+                              .graph_max_degree = graph_degree,};
     VecSimParams vecsim_svs_params = CreateParams(svs_params);
 
     auto mock_thread_pool = tieredIndexMock();
@@ -810,51 +755,47 @@ TYPED_TEST(SVSTieredIndexTest, testSizeEstimation) {
     VecSimParams params = CreateParams(tiered_params);
     auto *index = VecSimIndex_New(&params);
     mock_thread_pool.ctx->index_strong_ref.reset(index);
+    mock_thread_pool.init_threads();
+
     auto allocator = index->getAllocator();
 
     size_t initial_size_estimation = VecSimIndex_EstimateInitialSize(&params);
-
-    // labels_lookup hash table has additional memory, since STL implementation chooses "an
-    // appropriate prime number" higher than n as the number of allocated buckets (for n=1000, 1031
-    // buckets are created)
-    auto svs_index = this->CastToSVS(index);
-    if (isMulti == false) {
-        auto svs = reinterpret_cast<SVSIndex_Single<TEST_DATA_T, TEST_DIST_T> *>(svs_index);
-        initial_size_estimation += (svs->labelLookup.bucket_count() - n) * sizeof(size_t);
-    } else { // if its a multi value index cast to SVS_Multi
-        auto svs = reinterpret_cast<SVSIndex_Multi<TEST_DATA_T, TEST_DIST_T> *>(svs_index);
-        initial_size_estimation += (svs->labelLookup.bucket_count() - n) * sizeof(size_t);
-    }
 
     ASSERT_EQ(initial_size_estimation, index->getAllocationSize());
 
     // Add vectors up to initial capacity (initial capacity == block size).
     for (size_t i = 0; i < n; i++) {
         GenerateAndAddVector<TEST_DATA_T>(index, dim, i, i);
-        mock_thread_pool.thread_iteration();
     }
+    mock_thread_pool.thread_pool_join();
+
 
     // Estimate memory delta for filling up the first block and adding another block.
     size_t estimation = VecSimIndex_EstimateElementSize(&params) * bs;
 
     size_t before = index->getAllocationSize();
     GenerateAndAddVector<TEST_DATA_T>(index, dim, bs + n, bs + n);
-    mock_thread_pool.thread_iteration();
+    // Run the GC to move last vector to the SVS index.
+    index->runGC();
     size_t actual = index->getAllocationSize() - before;
 
+    auto tiered_index = this->CastToTieredSVS(index);
+
     // Flat index should be empty, hence the index size includes only svs size.
-    ASSERT_EQ(index->indexSize(), svs_index->indexSize());
-    ASSERT_EQ(index->indexCapacity(), svs_index->indexCapacity());
+    EXPECT_EQ(tiered_index->GetFlatIndex()->indexSize(), 0);
+    EXPECT_EQ(tiered_index->GetBackendIndex()->indexSize(), n+1);
+
     // We added n + 1 vectors
-    ASSERT_EQ(index->indexSize(), n + 1);
-    // We should have 2 blocks now
-    ASSERT_EQ(index->indexCapacity(), 2 * bs);
+    EXPECT_EQ(index->indexSize(), n + 1);
+
+    EXPECT_EQ(index->indexCapacity(), tiered_index->GetBackendIndex()->indexCapacity());
 
     // We check that the actual size is within 1% of the estimation.
-    ASSERT_GE(estimation, actual * 0.99);
-    ASSERT_LE(estimation, actual * 1.01);
+    EXPECT_GE(estimation, actual * 0.99);
+    EXPECT_LE(estimation, actual * 1.01);
 }
 
+/*
 TYPED_TEST(SVSTieredIndexTestBasic, deleteFromSVSMulti) {
     // Create TieredSVS index instance with a mock queue.
     size_t dim = 4;
