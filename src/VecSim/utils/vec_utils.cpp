@@ -53,6 +53,7 @@ const char *VecSimCommonStrings::HNSW_ENTRYPOINT = "ENTRYPOINT";
 const char *VecSimCommonStrings::HNSW_NUM_MARKED_DELETED = "NUMBER_OF_MARKED_DELETED";
 
 const char *VecSimCommonStrings::SVS_WS_SEARCH_STRING = "WS_SEARCH";
+const char *VecSimCommonStrings::SVS_USE_SEARCH_HISTORY_STRING = "USE_SEARCH_HISTORY";
 
 const char *VecSimCommonStrings::BLOCK_SIZE_STRING = "BLOCK_SIZE";
 const char *VecSimCommonStrings::SEARCH_MODE_STRING = "LAST_SEARCH_MODE";
@@ -131,6 +132,21 @@ VecSimResolveCode validate_positive_double_param(VecSimRawParam rawParam, double
     return VecSimParamResolver_OK;
 }
 
+VecSimResolveCode validate_vecsim_bool_param(VecSimRawParam rawParam, VecSimOptionBool *val) {
+    // Here we verify that given value is strictly ON or OFF
+    if (!strcmp(rawParam.value, "ON")) {
+        // rawParam.value is equal to ON
+        *val = VecSimOption_ENABLE;
+    } else if (!strcmp(rawParam.value, "OFF")) {
+        // rawParam.value is equal to OFF
+        *val = VecSimOption_DISABLE;
+    } else {
+        // rawParam.value is something else, not suitable
+        return VecSimParamResolverErr_BadValue;
+    }
+    return VecSimParamResolver_OK;
+}
+
 const char *VecSimAlgo_ToString(VecSimAlgo vecsimAlgo) {
     switch (vecsimAlgo) {
     case VecSimAlgo_BF:
@@ -140,7 +156,7 @@ const char *VecSimAlgo_ToString(VecSimAlgo vecsimAlgo) {
     case VecSimAlgo_TIERED:
         return VecSimCommonStrings::TIERED_STRING;
     case VecSimAlgo_SVS:
-	return VecSimCommonStrings::SVS_STRING;
+        return VecSimCommonStrings::SVS_STRING;
     }
     return NULL;
 }

@@ -49,8 +49,7 @@ static VecSimResolveCode _ResolveParams_EFRuntime(VecSimAlgo index_type, VecSimR
 }
 
 static VecSimResolveCode _ResolveParams_WSSearch(VecSimAlgo index_type, VecSimRawParam rparam,
-                                                  VecSimQueryParams *qparams,
-                                                  VecsimQueryType query_type) {
+                                                 VecSimQueryParams *qparams) {
     long long num_val;
     // WS_SEARCH is a valid parameter only in SVS algorithm.
     if (index_type != VecSimAlgo_SVS) {
@@ -64,6 +63,25 @@ static VecSimResolveCode _ResolveParams_WSSearch(VecSimAlgo index_type, VecSimRa
     }
 
     qparams->svsRuntimeParams.windowSize = (size_t)num_val;
+    return VecSimParamResolver_OK;
+}
+
+static VecSimResolveCode _ResolveParams_UseSearchHistory(VecSimAlgo index_type,
+                                                         VecSimRawParam rparam,
+                                                         VecSimQueryParams *qparams) {
+    VecSimOptionBool bool_val;
+    // USE_SEARCH_HISTORY is a valid parameter only in SVS algorithm.
+    if (index_type != VecSimAlgo_SVS) {
+        return VecSimParamResolverErr_UnknownParam;
+    }
+    if (qparams->svsRuntimeParams.searchHistory != 0) {
+        return VecSimParamResolverErr_AlreadySet;
+    }
+    if (validate_vecsim_bool_param(rparam, &bool_val) != VecSimParamResolver_OK) {
+        return VecSimParamResolverErr_BadValue;
+    }
+
+    qparams->svsRuntimeParams.searchHistory = bool_val;
     return VecSimParamResolver_OK;
 }
 
@@ -125,7 +143,7 @@ static VecSimResolveCode _ResolveParams_HybridPolicy(VecSimRawParam rparam,
 
 extern "C" VecSimIndex *VecSimIndex_New(const VecSimParams *params) {
     // TODO: temper here to trigger SVS
-	return VecSimFactory::NewIndex(params);
+    return VecSimFactory::NewIndex(params);
 }
 
 extern "C" size_t VecSimIndex_EstimateInitialSize(const VecSimParams *params) {
@@ -202,7 +220,13 @@ extern "C" VecSimResolveCode VecSimIndex_ResolveParams(VecSimIndex *index, VecSi
                 return res;
             }
         } else if (!strcasecmp(rparams[i].name, VecSimCommonStrings::SVS_WS_SEARCH_STRING)) {
-            if ((res = _ResolveParams_WSSearch(index_type, rparams[i], qparams, query_type)) !=
+            if ((res = _ResolveParams_WSSearch(index_type, rparams[i], qparams)) !=
+                VecSimParamResolver_OK) {
+                return res;
+            }
+        } else if (!strcasecmp(rparams[i].name,
+                               VecSimCommonStrings::SVS_USE_SEARCH_HISTORY_STRING)) {
+            if ((res = _ResolveParams_UseSearchHistory(index_type, rparams[i], qparams)) !=
                 VecSimParamResolver_OK) {
                 return res;
             }
