@@ -584,7 +584,7 @@ TYPED_TEST(SVSTest, svs_batch_iterator_reset) {
     VecSimIndex *index = this->CreateNewIndex(params);
 
     for (size_t i = 0; i < n; i++) {
-        GenerateAndAddVector<TEST_DATA_T>(index, dim, i, i);
+        GenerateAndAddVector<TEST_DATA_T>(index, dim, i, i / 10);
     }
     ASSERT_EQ(VecSimIndex_IndexSize(index), n);
 
@@ -604,7 +604,7 @@ TYPED_TEST(SVSTest, svs_batch_iterator_reset) {
         size_t iteration_num = 0;
         while (VecSimBatchIterator_HasNext(batchIterator)) {
             std::set<size_t> expected_ids;
-            for (size_t i = 1; i <= n_res; i++) {
+            for (size_t i = 1; i <= n_res * 2; i++) {
                 expected_ids.insert(n - iteration_num * n_res - i);
             }
             auto verify_res = [&](size_t id, double score, size_t index) {
@@ -1528,7 +1528,7 @@ TYPED_TEST(SVSTest, testSizeEstimation) {
         .initialCapacity = n,
         .blockSize = bs,
         /* SVS-Vamana specifics */
-        .alpha = 1.2,
+        .alpha = 0.9,
         .graph_max_degree = 63, // x^2-1 to round the graph block size
         .construction_window_size = 20,
         .max_candidate_pool_size = 1024,
