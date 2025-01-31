@@ -642,7 +642,6 @@ PYBIND11_MODULE(VecSim, m) {
         .def_readwrite("type", &SVSParams::type)
         .def_readwrite("dim", &SVSParams::dim)
         .def_readwrite("metric", &SVSParams::metric)
-        .def_readwrite("multi", &SVSParams::multi)
         .def_readwrite("initialCapacity", &SVSParams::initialCapacity)
         .def_readwrite("blockSize", &SVSParams::blockSize)
         .def_readwrite("quantBits", &SVSParams::quantBits)

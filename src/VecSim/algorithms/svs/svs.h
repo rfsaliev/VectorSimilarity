@@ -76,7 +76,6 @@ protected:
             .type = hint.type,
             .dim = hint.dim,
             .metric = hint.metric,
-            .multi = false,
             .initialCapacity = hint.initialCapacity,
             .blockSize = hint.blockSize ? hint.blockSize : DEFAULT_BLOCK_SIZE,
 
