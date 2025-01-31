@@ -117,7 +117,7 @@ protected:
     }
 
     void initImpl(impl_type::data_type data, std::span<const labelType> ids) {
-        svs::threads::NativeThreadPool threadpool{params_.num_threads};
+        svs::threads::SwitchNativeThreadPool threadpool{params_.num_threads};
         // Compute the entry point.
         auto entry_point = svs::index::vamana::extensions::compute_entry_point(data, threadpool);
 
