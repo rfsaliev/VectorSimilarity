@@ -14,7 +14,7 @@ bool FactoryLog(void *ctx, const char *lvl, const char *msg) {
     return true;
 }
 
-template <typename MetricType, typename DataType, size_t QuantBits = 0, size_t ResidualBits = 0>
+template <typename MetricType, typename DataType, size_t QuantBits, size_t ResidualBits = 0>
 VecSimIndex *NewIndexImpl(const VecSimParams *params) {
     auto allocator = VecSimAllocator::newVecsimAllocator();
     return new (allocator)
@@ -22,7 +22,7 @@ VecSimIndex *NewIndexImpl(const VecSimParams *params) {
 }
 
 template <typename MetricType, typename DataType>
-VecSimIndex *NewIndexImplLVQ(const VecSimParams *params) {
+VecSimIndex *NewIndexImpl(const VecSimParams *params) {
     switch (params->algoParams.svsParams.quantBits) {
     case VecSimQuant_0:
         return NewIndexImpl<MetricType, DataType, 0>(params);
@@ -47,15 +47,8 @@ VecSimIndex *NewIndexDType(const VecSimParams *params) {
     assert(params && params->algo == VecSimAlgo_SVS);
     switch (params->algoParams.svsParams.type) {
     case VecSimType_FLOAT32:
-        return NewIndexImplLVQ<MetricType, float>(params);
+        return NewIndexImpl<MetricType, float>(params);
     case VecSimType_FLOAT16:
-        // FIXME(rfsaliev) To be fixed in SVS:
-        // Float16 + LVQ is not supported
-        if (params->algoParams.svsParams.quantBits > 0) {
-            FactoryLog(params->logCtx, VecSimCommonStrings::LOG_WARNING_STRING,
-                       "SVSIndex: LVQ+FLOAT16 is not supported");
-            return NULL;
-        }
         return NewIndexImpl<MetricType, svs::Float16>(params);
     default:
         // If we got here something is wrong.
@@ -115,13 +108,6 @@ size_t SVSIndexVectorSize(VecSimType data_type, VecSimQuantBits quant_bits, size
     case VecSimType_FLOAT32:
         return SVSIndexVectorSize<float>(quant_bits, dims, alignment);
     case VecSimType_FLOAT16:
-        // FIXME(rfsaliev) To be fixed in SVS:
-        // Float16 + LVQ is not supported
-        if (quant_bits != VecSimQuant_0) {
-            // If we got here something is wrong.
-            assert(false && "SVSIndex: LVQ+FLOAT16 is not supported");
-            return 0;
-        }
         return SVSIndexVectorSize<svs::Float16>(quant_bits, dims, alignment);
     default:
         // If we got here something is wrong.
