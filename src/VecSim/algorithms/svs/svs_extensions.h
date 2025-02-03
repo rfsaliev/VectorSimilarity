@@ -13,19 +13,14 @@
 #include "svs/quantization/lvq/impl/lvq_impl.h"
 
 namespace details {
-template <size_t Primary, size_t Residual>
+template <size_t Primary>
 struct LVQSelector {
     using strategy = svs::quantization::lvq::Sequential;
 };
 
 template <>
-struct LVQSelector<4, 8> {
+struct LVQSelector<4> {
     using strategy = svs::quantization::lvq::Turbo<16, 8>;
-};
-
-template <>
-struct LVQSelector<8, 0> {
-    using strategy = svs::quantization::lvq::Turbo<16, 4>;
 };
 } // namespace details
 
@@ -33,7 +28,7 @@ template <typename DataType, size_t QuantBits, size_t ResidualBits>
 struct SVSStorageTraits<DataType, QuantBits, ResidualBits, std::enable_if_t<(QuantBits > 0)>> {
     using allocator_type = details::SVSAllocator<std::byte>;
     using blocked_type = svs::data::Blocked<allocator_type>;
-    using strategy_type = typename details::LVQSelector<QuantBits, ResidualBits>::strategy;
+    using strategy_type = typename details::LVQSelector<QuantBits>::strategy;
     using index_storage_type =
         svs::quantization::lvq::LVQDataset<QuantBits, ResidualBits, svs::Dynamic, strategy_type,
                                            blocked_type>;
