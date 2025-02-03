@@ -87,7 +87,7 @@ TYPED_TEST_SUITE(SVSTieredIndexTestBasic, DataTypeSet);
 TYPED_TEST(SVSTieredIndexTest, CreateIndexInstance) {
     // Create TieredSVS index instance with a mock queue.
     SVSParams params = {
-        .type = TypeParam::get_index_type(), .dim = 4, .metric = VecSimMetric_L2, .multi = false};
+        .type = TypeParam::get_index_type(), .dim = 4, .metric = VecSimMetric_L2};
     VecSimParams svs_params = CreateParams(params);
     auto mock_thread_pool = tieredIndexMock();
     auto *tiered_index = this->CreateTieredSVSIndex(svs_params, mock_thread_pool);
@@ -119,7 +119,7 @@ TYPED_TEST(SVSTieredIndexTest, addVector) {
     // Create TieredSVS index instance with a mock queue.
     size_t dim = 4;
     SVSParams params = {
-        .type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2, .multi = false};
+        .type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2};
     VecSimParams svs_params = CreateParams(params);
 
     auto mock_thread_pool = tieredIndexMock();
@@ -175,7 +175,7 @@ TYPED_TEST(SVSTieredIndexTest, insertJob) {
     // Create TieredSVS index instance with a mock queue.
     size_t dim = 4;
     SVSParams params = {
-        .type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2, .multi = false};
+        .type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2};
     VecSimParams svs_params = CreateParams(params);
     auto mock_thread_pool = tieredIndexMock();
 
@@ -211,7 +211,7 @@ TYPED_TEST(SVSTieredIndexTest, insertJobAsync) {
     size_t dim = 4;
     size_t n = 5000;
     SVSParams params = {
-        .type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2, .multi = false};
+        .type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2};
     VecSimParams svs_params = CreateParams(params);
     auto mock_thread_pool = tieredIndexMock();
 
@@ -470,7 +470,7 @@ TYPED_TEST(SVSTieredIndexTest, deleteVector) {
     // Create TieredSVS index instance with a mock queue.
     size_t dim = 4;
     SVSParams params = {
-        .type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2, .multi = false};
+        .type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2};
     VecSimParams svs_params = CreateParams(params);
     auto mock_thread_pool = tieredIndexMock();
 
@@ -532,8 +532,7 @@ TYPED_TEST(SVSTieredIndexTest, manageIndexOwnership) {
     size_t dim = 4;
     SVSParams params = {.type = TypeParam::get_index_type(),
                          .dim = dim,
-                         .metric = VecSimMetric_L2,
-                         .multi = false};
+                         .metric = VecSimMetric_L2};
     VecSimParams svs_params = CreateParams(params);
     auto mock_thread_pool = tieredIndexMock();
 
@@ -610,7 +609,6 @@ TYPED_TEST(SVSTieredIndexTest, parallelSearch) {
         .type = TypeParam::get_index_type(),
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .multi = false,
         .search_window_size = n,
     };
     VecSimParams svs_params = CreateParams(params);
@@ -684,7 +682,6 @@ TYPED_TEST(SVSTieredIndexTest, parallelInsertSearch) {
         .type = TypeParam::get_index_type(),
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .multi = false,
         .blockSize = block_size,
     };
     VecSimParams svs_params = CreateParams(params);
@@ -741,7 +738,6 @@ TYPED_TEST(SVSTieredIndexTest, testSizeEstimation) {
     SVSParams svs_params = {.type = TypeParam::get_index_type(),
                               .dim = dim,
                               .metric = VecSimMetric_L2,
-                              .multi = isMulti,
                               .initialCapacity = n,
                               .graph_max_degree = graph_degree,};
     VecSimParams vecsim_svs_params = CreateParams(svs_params);
@@ -808,7 +804,6 @@ TYPED_TEST(SVSTieredIndexTest, parallelInsertAdHoc) {
         .type = TypeParam::get_index_type(),
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .multi = false,
         .blockSize = block_size,
     };
     VecSimParams svs_params = CreateParams(params);
@@ -864,7 +859,6 @@ TYPED_TEST(SVSTieredIndexTest, deleteVectorAndRepairAsync) {
         SVSParams params = {.type = TypeParam::get_index_type(),
                              .dim = dim,
                              .metric = VecSimMetric_L2,
-                             .multi = TypeParam::isMulti(),
                              .blockSize = 100};
         VecSimParams svs_params = CreateParams(params);
         auto mock_thread_pool = tieredIndexMock();
@@ -935,7 +929,6 @@ TYPED_TEST(SVSTieredIndexTest, alternateInsertDeleteAsync) {
             SVSParams params = {.type = TypeParam::get_index_type(),
                                  .dim = dim,
                                  .metric = VecSimMetric_L2,
-                                 .multi = TypeParam::isMulti(),
                                  .blockSize = 100,
                                  .M = M};
             VecSimParams svs_params = CreateParams(params);
@@ -1002,8 +995,7 @@ TYPED_TEST(SVSTieredIndexTest, swapJobBasic) {
     size_t dim = 4;
     SVSParams params = {.type = TypeParam::get_index_type(),
                          .dim = dim,
-                         .metric = VecSimMetric_L2,
-                         .multi = TypeParam::isMulti()};
+                         .metric = VecSimMetric_L2};
     VecSimParams svs_params = CreateParams(params);
     auto mock_thread_pool = tieredIndexMock();
 
@@ -1097,8 +1089,7 @@ TYPED_TEST(SVSTieredIndexTest, swapJobBasic2) {
     size_t dim = 4;
     SVSParams params = {.type = TypeParam::get_index_type(),
                          .dim = dim,
-                         .metric = VecSimMetric_L2,
-                         .multi = TypeParam::isMulti()};
+                         .metric = VecSimMetric_L2};
     VecSimParams svs_params = CreateParams(params);
     auto mock_thread_pool = tieredIndexMock();
 
@@ -1208,7 +1199,6 @@ TYPED_TEST(SVSTieredIndexTest, BatchIterator) {
         .type = TypeParam::get_index_type(),
         .dim = d,
         .metric = VecSimMetric_L2,
-        .multi = TypeParam::isMulti(),
         .initialCapacity = n,
         .efConstruction = ef,
         .efRuntime = ef,
@@ -1277,7 +1267,6 @@ TYPED_TEST(SVSTieredIndexTest, BatchIteratorReset) {
         .type = TypeParam::get_index_type(),
         .dim = d,
         .metric = VecSimMetric_L2,
-        .multi = TypeParam::isMulti(),
         .initialCapacity = n,
         .efConstruction = ef,
         .efRuntime = ef,
@@ -1369,7 +1358,6 @@ TYPED_TEST(SVSTieredIndexTest, BatchIteratorSize1) {
         .type = TypeParam::get_index_type(),
         .dim = d,
         .metric = VecSimMetric_L2,
-        .multi = TypeParam::isMulti(),
         .initialCapacity = n,
         .efConstruction = ef,
         .efRuntime = ef,
@@ -1434,7 +1422,6 @@ TYPED_TEST(SVSTieredIndexTest, BatchIteratorAdvanced) {
         .type = TypeParam::get_index_type(),
         .dim = d,
         .metric = VecSimMetric_L2,
-        .multi = TypeParam::isMulti(),
         .initialCapacity = n,
         .efConstruction = ef,
     };
@@ -1547,7 +1534,6 @@ TYPED_TEST(SVSTieredIndexTest, BatchIteratorWithOverlaps) {
         .type = TypeParam::get_index_type(),
         .dim = d,
         .metric = VecSimMetric_L2,
-        .multi = TypeParam::isMulti(),
         .initialCapacity = n,
         .efConstruction = ef,
         .efRuntime = ef,
@@ -1644,7 +1630,6 @@ TYPED_TEST(SVSTieredIndexTestBasic, BatchIteratorWithOverlaps_SpacialMultiCases)
         .type = TypeParam::get_index_type(),
         .dim = d,
         .metric = VecSimMetric_L2,
-        .multi = true,
     };
     VecSimParams params = CreateParams(svs_params);
     auto mock_thread_pool = tieredIndexMock();
@@ -1763,7 +1748,6 @@ TYPED_TEST(SVSTieredIndexTest, parallelBatchIteratorSearch) {
         .type = TypeParam::get_index_type(),
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .multi = isMulti,
         .efRuntime = ef,
     };
     VecSimParams svs_params = CreateParams(params);
@@ -1844,7 +1828,7 @@ TYPED_TEST(SVSTieredIndexTestBasic, overwriteVectorBasic) {
     size_t dim = 4;
     size_t n = 1000;
     SVSParams params = {
-        .type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2, .multi = false};
+        .type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2};
     VecSimParams svs_params = CreateParams(params);
     auto mock_thread_pool = tieredIndexMock();
 
@@ -1906,7 +1890,7 @@ TYPED_TEST(SVSTieredIndexTestBasic, overwriteVectorAsync) {
     size_t dim = 4;
     size_t n = 1000;
     SVSParams params = {
-        .type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2, .multi = false};
+        .type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2};
     VecSimParams svs_params = CreateParams(params);
     for (size_t maxSwapJobs : {(int)n + 1, 1}) {
         auto mock_thread_pool = tieredIndexMock();
@@ -1961,8 +1945,7 @@ TYPED_TEST(SVSTieredIndexTest, testInfo) {
     size_t n = 1000;
     SVSParams params = {.type = TypeParam::get_index_type(),
                          .dim = dim,
-                         .metric = VecSimMetric_L2,
-                         .multi = TypeParam::isMulti()};
+                         .metric = VecSimMetric_L2};
     VecSimParams svs_params = CreateParams(params);
     auto mock_thread_pool = tieredIndexMock();
 
@@ -2069,8 +2052,7 @@ TYPED_TEST(SVSTieredIndexTest, testInfoIterator) {
     size_t n = 1000;
     SVSParams params = {.type = TypeParam::get_index_type(),
                          .dim = dim,
-                         .metric = VecSimMetric_L2,
-                         .multi = TypeParam::isMulti()};
+                         .metric = VecSimMetric_L2};
 
     VecSimParams svs_params = CreateParams(params);
     auto mock_thread_pool = tieredIndexMock();
@@ -2164,8 +2146,7 @@ TYPED_TEST(SVSTieredIndexTest, writeInPlaceMode) {
 
     SVSParams params = {.type = TypeParam::get_index_type(),
                          .dim = dim,
-                         .metric = VecSimMetric_L2,
-                         .multi = TypeParam::isMulti()};
+                         .metric = VecSimMetric_L2};
     VecSimParams svs_params = CreateParams(params);
     auto mock_thread_pool = tieredIndexMock();
 
@@ -2203,7 +2184,6 @@ TYPED_TEST(SVSTieredIndexTest, switchWriteModes) {
     SVSParams params = {.type = TypeParam::get_index_type(),
                          .dim = dim,
                          .metric = VecSimMetric_L2,
-                         .multi = TypeParam::isMulti(),
                          .M = 32,
                          .efRuntime = 3 * n};
     VecSimParams svs_params = CreateParams(params);
@@ -2295,8 +2275,7 @@ TYPED_TEST(SVSTieredIndexTest, bufferLimit) {
     size_t dim = 4;
     SVSParams params = {.type = TypeParam::get_index_type(),
                          .dim = dim,
-                         .metric = VecSimMetric_L2,
-                         .multi = TypeParam::isMulti()};
+                         .metric = VecSimMetric_L2};
     VecSimParams svs_params = CreateParams(params);
     auto mock_thread_pool = tieredIndexMock();
 
@@ -2363,7 +2342,6 @@ TYPED_TEST(SVSTieredIndexTest, bufferLimitAsync) {
     SVSParams params = {.type = TypeParam::get_index_type(),
                          .dim = dim,
                          .metric = VecSimMetric_L2,
-                         .multi = TypeParam::isMulti(),
                          .M = 64};
 
     VecSimParams svs_params = CreateParams(params);
@@ -2423,7 +2401,6 @@ TYPED_TEST(SVSTieredIndexTest, RangeSearch) {
         .type = TypeParam::get_index_type(),
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .multi = TypeParam::isMulti(),
         .epsilon = 3.0 * per_label,
     };
     VecSimParams svs_params = CreateParams(params);
@@ -2639,7 +2616,6 @@ TYPED_TEST(SVSTieredIndexTest, parallelRangeSearch) {
         .type = TypeParam::get_index_type(),
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .multi = isMulti,
         .epsilon = double(dim * k * k),
     };
     VecSimParams svs_params = CreateParams(params);
@@ -2905,91 +2881,6 @@ TYPED_TEST(SVSTieredIndexTestBasic, deleteBothAsyncAndInplace) {
     // Both ids 1 and 0 (previously was 2) are now ready due to the deletion of 0 and its associated
     // jobs.
     ASSERT_EQ(tiered_index->readySwapJobs, 2);
-}
-
-TYPED_TEST(SVSTieredIndexTestBasic, deleteBothAsyncAndInplaceMulti) {
-    // Create TieredSVS index instance with a mock queue.
-    size_t dim = 4;
-    SVSParams params = {
-        .type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2, .multi = true};
-    VecSimParams svs_params = CreateParams(params);
-
-    auto mock_thread_pool = tieredIndexMock();
-
-    auto *tiered_index = this->CreateTieredSVSIndex(svs_params, mock_thread_pool);
-    auto allocator = tiered_index->getAllocator();
-
-    // Insert one vector to SVS.
-    GenerateAndAddVector<TEST_DATA_T>(tiered_index->backendIndex, dim, 0);
-    // Add another vector and remove it. Expect that at SVS index one repair job will be created.
-    GenerateAndAddVector<TEST_DATA_T>(tiered_index->backendIndex, dim, 1, 1);
-    ASSERT_EQ(tiered_index->deleteLabelFromSVS(1), 1);
-
-    // Add one more vector (id=2) under label 0.
-    GenerateAndAddVector<TEST_DATA_T>(tiered_index->backendIndex, dim, 0, 2);
-    // Add two more vectors, and delete the first one.
-    GenerateAndAddVector<TEST_DATA_T>(tiered_index->backendIndex, dim, 3, 3);
-    GenerateAndAddVector<TEST_DATA_T>(tiered_index->backendIndex, dim, 4, 4);
-
-    ASSERT_EQ(tiered_index->indexSize(), 5);
-
-    // Remove vector with label=3, expect that the same repair job for 0
-    // would be created for repairing 0->3, and a new repair jobs for 2 and 4 to repair 2->3 and
-    // 4->3.
-    ASSERT_EQ(tiered_index->deleteLabelFromSVS(3), 1);
-    ASSERT_TRUE(tiered_index->idToSwapJob.contains(3));
-    ASSERT_EQ(tiered_index->idToRepairJobs.size(), 3);
-    ASSERT_EQ(tiered_index->idToRepairJobs.at(0)[0]->associatedSwapJobs.size(), 2);
-    ASSERT_EQ(tiered_index->idToRepairJobs.at(0)[0]->associatedSwapJobs[1]->deleted_id, 3);
-    ASSERT_EQ(tiered_index->idToRepairJobs.at(2)[0]->associatedSwapJobs.size(), 1);
-    ASSERT_EQ(tiered_index->idToRepairJobs.at(2)[0]->associatedSwapJobs[0]->deleted_id, 3);
-    ASSERT_EQ(tiered_index->idToRepairJobs.at(4)[0]->associatedSwapJobs.size(), 1);
-    ASSERT_EQ(tiered_index->idToRepairJobs.at(4)[0]->associatedSwapJobs[0]->deleted_id, 3);
-
-    tiered_index->setWriteMode(VecSim_WriteInPlace);
-    // Delete inplace, expect that the repair job for 0->1 and 0->2 will not be valid anymore.
-    ASSERT_EQ(tiered_index->deleteVector(0), 2);
-    ASSERT_EQ(tiered_index->indexSize(), 3);
-    ASSERT_FALSE(mock_thread_pool.jobQ.front().job->isValid);
-    mock_thread_pool.thread_iteration();
-    // The next job in the queue shoule be the repair job for 2->3 and invalidate as well.
-    ASSERT_FALSE(mock_thread_pool.jobQ.front().job->isValid);
-    mock_thread_pool.thread_iteration();
-    // The next job in the queue shoule be the repair job for 4->3, we validate that the id of 4
-    // swapped properly to a valid id (lower than index size).
-    ASSERT_LT(((SVSRepairJob *)(mock_thread_pool.jobQ.front().job))->node_id,
-              tiered_index->indexSize());
-    ASSERT_TRUE(mock_thread_pool.jobQ.front().job->isValid);
-
-    // Also expect that the swap job for 3 will not exist anymore, as 2 swapped with 2.
-    ASSERT_EQ(tiered_index->getSVSIndex()->getNumMarkedDeleted(), 2);
-    ASSERT_EQ(tiered_index->idToSwapJob.size(), 2);
-    ASSERT_FALSE(tiered_index->idToSwapJob.contains(3));
-    // Id 1 is now ready due to the deletion of 0 and its associated jobs.
-    ASSERT_EQ(tiered_index->readySwapJobs, 1);
-}
-
-TYPED_TEST(SVSTieredIndexTestBasic, deleteInplaceMultiSwapId) {
-    // Create TieredSVS index instance with a mock queue.
-    size_t dim = 4;
-    SVSParams params = {
-        .type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2, .multi = true};
-    VecSimParams svs_params = CreateParams(params);
-
-    auto mock_thread_pool = tieredIndexMock();
-
-    auto *tiered_index = this->CreateTieredSVSIndex(svs_params, mock_thread_pool);
-    auto allocator = tiered_index->getAllocator();
-
-    // Insert three vector to SVS - first and last under the same label.
-    GenerateAndAddVector<TEST_DATA_T>(tiered_index->backendIndex, dim, 0);
-    GenerateAndAddVector<TEST_DATA_T>(tiered_index->backendIndex, dim, 1);
-    GenerateAndAddVector<TEST_DATA_T>(tiered_index->backendIndex, dim, 0);
-    tiered_index->setWriteMode(VecSim_WriteInPlace);
-    // Delete in-place and validate that the second id of label 0 swapped properly with the last id
-    // before the deletion, and that eventually entry point was set correctly,
-    ASSERT_EQ(tiered_index->deleteVector(0), 2);
-    ASSERT_EQ(tiered_index->getSVSIndex()->safeGetEntryPointState().first, 0);
 }
 
 TYPED_TEST(SVSTieredIndexTestBasic, deleteInplaceAvoidUpdatedMarkedDeleted) {
