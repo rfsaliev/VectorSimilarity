@@ -33,6 +33,7 @@ class TieredSVSIndex : public VecSimTieredIndex<DataType, float> {
     std::vector<journal_record> journal;
     std::shared_mutex journal_mutex;
     std::atomic_flag indexUpdateScheduled = ATOMIC_FLAG_INIT;
+    std::mutex updateJobMutex;
 
 /// <batch_iterator>
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -286,8 +287,10 @@ private:
     static void updateSVSIndexWrapper(AsyncJob *job) {
         auto index = dynamic_cast<TieredSVSIndex<DataType> *>(job->index);
         assert(index);
-        index->updateSVSIndex();
+        // prevent parallel updates
+        std::lock_guard<std::mutex> lock(index->updateJobMutex);
         index->indexUpdateScheduled.clear();
+        index->updateSVSIndex();
         delete job;
     }
 
@@ -381,6 +384,7 @@ public:
                   : std::min(tiered_index_params.specificParams.tieredSVSParams.updateJobThreshold,
                              MAX_PENDING_SWAP_JOBS_THRESHOLD)) {
         this->journal.reserve(this->updateJobThreshold * 2);
+        TIERED_LOG(VecSimCommonStrings::LOG_NOTICE_STRING, "TieredSVSIndex created");
     }
 
     int addVector(const void *blob, labelType label, void *auxiliaryCtx = nullptr) override {
@@ -390,16 +394,13 @@ public:
             std::unique_lock<std::shared_mutex> svs_lock(this->mainIndexGuard);
             return svs_index->addVectors(blob, &label, 1);
         }
+        bool index_update_needed = false;
         {
             std::scoped_lock lock(this->flatIndexGuard, this->journal_mutex);
             ret = this->frontendIndex->addVector(blob, label);
             journal.emplace_back(label, true);
+            index_update_needed = this->journal.size() >= this->updateJobThreshold;
         }
-
-        bool index_update_needed = [&] {
-            std::shared_lock<std::shared_mutex> flat_lock(this->flatIndexGuard);
-            return this->frontendIndex->indexSize() >= this->updateJobThreshold;
-        }();
 
         if (index_update_needed) {
             scheduleSVSIndexUpdate();
@@ -428,8 +429,7 @@ public:
 
         bool index_update_needed = false;
         if (label_exists) {
-            std::unique_lock<std::shared_mutex> flat_lock(this->flatIndexGuard);
-            std::unique_lock<std::shared_mutex> journal_lock(this->journal_mutex);
+            std::scoped_lock lock(this->flatIndexGuard, this->journal_mutex);
             if (this->frontendIndex->isLabelExists(label)) {
                 auto deleted = this->frontendIndex->deleteVector(label);
                 if (deleted) {
@@ -523,8 +523,9 @@ public:
         TIERED_LOG(VecSimCommonStrings::LOG_VERBOSE_STRING,
                    "running asynchronous GC for tiered SVS index");
         if (!indexUpdateScheduled.test_and_set()) {
-            updateSVSIndex();
-            indexUpdateScheduled.clear();
+            auto job =
+                new (this->allocator) SVSIndexUpdateJob{this->allocator, updateSVSIndexWrapper, this};
+            updateSVSIndexWrapper(job);
         }
         std::unique_lock<std::shared_mutex> backend_lock{this->mainIndexGuard};
         static_cast<VecSimIndexInterface *>(this->backendIndex)->runGC();
