@@ -86,7 +86,8 @@ protected:
             .prune_to = GET_WITH_DEFAULT(hint.prune_to, graph_degree - 4),
             .use_search_history = hint.use_search_history != VecSimOption_DEFAULT ? hint.use_search_history : VecSimOption_ENABLE,
             .num_threads = GET_WITH_DEFAULT(hint.num_threads, std::thread::hardware_concurrency()),
-            .search_window_size = GET_WITH_DEFAULT(hint.search_window_size, 10)
+            .search_window_size = GET_WITH_DEFAULT(hint.search_window_size, 10),
+            .epsilon = hint.epsilon > 0.0 ? hint.epsilon : 0.01,
         };
         #undef GET_WITH_DEFAULT
         // clang-format on
@@ -350,12 +351,39 @@ public:
                                          params_.dim};
         svs::index::vamana::BatchIterator<impl_type, data_type> svs_it{*impl_, query, schedule,
                                                                        cancel};
-
         if (cancel()) {
             rep->code = VecSim_QueryReply_TimedOut;
             return rep;
         }
 
+#if 1
+        // fast range search using epsilon
+        const auto epsilon = queryParams && queryParams->svsRuntimeParams.epsilon > 0.0
+                                 ? queryParams->svsRuntimeParams.epsilon
+                                 : params_.epsilon;
+
+        const auto range_search_boundaries = radius * (1.0 + epsilon);
+        bool keep_searching = true;
+        while (keep_searching && svs_it.size() > 0) {
+            for (auto &neighbor : svs_it) {
+                const auto dist = toVecSimDistance(neighbor.distance());
+                if (dist <= radius) {
+                    rep->results.emplace_back(neighbor.id(), dist);
+                } else if (dist > range_search_boundaries) {
+                    keep_searching = false;
+                    break;
+                }
+            }
+            if (keep_searching) {
+                svs_it.next(cancel);
+                if (cancel()) {
+                    rep->code = VecSim_QueryReply_TimedOut;
+                    return rep;
+                }
+            }
+        }
+#else
+        // strict range search assuming that batch iterator results are not sorted in 100%
         int batch_times = 3;
         bool done = false;
         while (svs_it.size() > 0 && batch_times > 0) {
@@ -376,6 +404,7 @@ public:
                 return rep;
             }
         }
+#endif
         return rep;
     }
 

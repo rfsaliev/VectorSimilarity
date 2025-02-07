@@ -165,6 +165,7 @@ typedef struct {
     VecSimOptionBool use_search_history;
     size_t num_threads;
     size_t search_window_size;
+    double epsilon;
 } SVSParams;
 
 // A struct that contains HNSW tiered index specific params.
@@ -218,6 +219,7 @@ typedef struct {
 typedef struct {
     size_t windowSize; // Search window size for Vamana graph accuracy/latency tune.
     VecSimOptionBool searchHistory; // Enabling of the visited set for search.
+    double epsilon;   // Epsilon parameter for SVS graph accuracy/latency for range search.
 } SVSRuntimeParams;
 
 /**
