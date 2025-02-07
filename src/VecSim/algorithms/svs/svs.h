@@ -76,7 +76,6 @@ protected:
             .type = hint.type,
             .dim = hint.dim,
             .metric = hint.metric,
-            .initialCapacity = hint.initialCapacity,
             .blockSize = hint.blockSize ? hint.blockSize : DEFAULT_BLOCK_SIZE,
 
             .alpha = GET_WITH_DEFAULT(hint.alpha, (hint.metric == VecSimMetric_L2 ? 1.2f : 0.9f)),

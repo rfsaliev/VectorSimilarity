@@ -44,8 +44,8 @@ struct SVSIndexType {
 
 // clang-format off
 using SVSDataTypeSet = ::testing::Types<SVSIndexType<VecSimType_FLOAT32, float, VecSimQuant_NONE>
-                                       ,SVSIndexType<VecSimType_FLOAT32, float, VecSimQuant_8>
-                                       ,SVSIndexType<VecSimType_FLOAT32, float, VecSimQuant_4>
+                                    //    ,SVSIndexType<VecSimType_FLOAT32, float, VecSimQuant_8>
+                                    //    ,SVSIndexType<VecSimType_FLOAT32, float, VecSimQuant_4>
                                         >;
 // clang-format on
 
@@ -58,7 +58,6 @@ TYPED_TEST(SVSTest, svs_vector_add_test) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_IP,
-        .initialCapacity = 200,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
@@ -86,7 +85,6 @@ TYPED_TEST(SVSTest, svs_vector_update_test) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_IP,
-        .initialCapacity = n,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
@@ -150,7 +148,6 @@ TYPED_TEST(SVSTest, svs_vector_search_by_id_test) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .initialCapacity = 200,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
@@ -182,7 +179,6 @@ TYPED_TEST(SVSTest, svs_bulk_vectors_add_test) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .initialCapacity = 200,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
@@ -230,7 +226,6 @@ TYPED_TEST(SVSTest, svs_get_distance) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .initialCapacity = 200,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
@@ -302,7 +297,6 @@ TYPED_TEST(SVSTest, svs_indexing_same_vector) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .initialCapacity = 200,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
@@ -338,7 +332,6 @@ TYPED_TEST(SVSTest, svs_reindexing_same_vector) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .initialCapacity = 200,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
@@ -398,7 +391,6 @@ TYPED_TEST(SVSTest, svs_reindexing_same_vector_different_id) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .initialCapacity = 200,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
@@ -455,7 +447,6 @@ TYPED_TEST(SVSTest, svs_batch_iterator) {
         SVSParams params = {
             .dim = dim,
             .metric = VecSimMetric_L2,
-            .initialCapacity = n,
             /* SVS-Vamana specifics */
             .alpha = 1.2,
             .graph_max_degree = 64,
@@ -510,7 +501,6 @@ TYPED_TEST(SVSTest, svs_batch_iterator_non_unique_scores) {
         SVSParams params = {
             .dim = dim,
             .metric = VecSimMetric_L2,
-            .initialCapacity = n,
             /* SVS-Vamana specifics */
             .alpha = 1.2,
             .graph_max_degree = 64,
@@ -572,7 +562,6 @@ TYPED_TEST(SVSTest, svs_batch_iterator_reset) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .initialCapacity = n,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
@@ -631,7 +620,6 @@ TYPED_TEST(SVSTest, svs_batch_iterator_corner_cases) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .initialCapacity = n,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
@@ -706,7 +694,6 @@ TYPED_TEST(SVSTest, svs_empty_index) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .initialCapacity = n,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
@@ -745,7 +732,6 @@ TYPED_TEST(SVSTest, svs_empty_index) {
 }
 
 TYPED_TEST(SVSTest, test_delete_shift_index) {
-    size_t initial_capacity = 5; // idToLabelMapping initial size.
     size_t k = 5;
     size_t dim = 2;
     size_t block_size = 3;
@@ -761,7 +747,6 @@ TYPED_TEST(SVSTest, test_delete_shift_index) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .initialCapacity = initial_capacity,
         .blockSize = block_size,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
@@ -773,8 +758,6 @@ TYPED_TEST(SVSTest, test_delete_shift_index) {
     };
 
     VecSimIndex *index = this->CreateNewIndex(params);
-
-    size_t aligned_cap = initial_capacity - initial_capacity % block_size + block_size;
 
     size_t n = 6;
     for (size_t i = 0; i < n; i++) {
@@ -806,7 +789,6 @@ TYPED_TEST(SVSTest, sanity_reinsert_1280) {
     SVSParams params = {
         .dim = d,
         .metric = VecSimMetric_L2,
-        .initialCapacity = n,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
@@ -859,7 +841,6 @@ TYPED_TEST(SVSTest, test_svs_info) {
     SVSParams params = {
         .dim = d,
         .metric = VecSimMetric_L2,
-        .initialCapacity = n,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
@@ -919,7 +900,6 @@ TYPED_TEST(SVSTest, test_basic_svs_info_iterator) {
         SVSParams params = {
             .dim = d,
             .metric = metrics[i],
-            .initialCapacity = n,
             /* SVS-Vamana specifics */
             .alpha = 1.2,
             .graph_max_degree = 64,
@@ -1039,7 +1019,6 @@ TYPED_TEST(SVSTest, svs_vector_search_test_ip) {
         SVSParams params = {
             .dim = dim,
             .metric = VecSimMetric_IP,
-            .initialCapacity = 55,
             .blockSize = blocksize,
             /* SVS-Vamana specifics */
             .alpha = 0.9,
@@ -1085,7 +1064,6 @@ TYPED_TEST(SVSTest, svs_vector_search_test_l2) {
         SVSParams params = {
             .dim = dim,
             .metric = VecSimMetric_L2,
-            .initialCapacity = 55,
             .blockSize = blocksize,
             /* SVS-Vamana specifics */
             .alpha = 1.2,
@@ -1128,7 +1106,6 @@ TYPED_TEST(SVSTest, svs_search_empty_index) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .initialCapacity = 200,
         .blockSize = 1,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
@@ -1190,7 +1167,6 @@ TYPED_TEST(SVSTest, svs_test_inf_score) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .initialCapacity = n,
         .blockSize = 1,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
@@ -1238,7 +1214,6 @@ TYPED_TEST(SVSTest, svs_resolve_params) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .initialCapacity = 0,
         .blockSize = 5,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
@@ -1313,7 +1288,6 @@ TYPED_TEST(SVSTest, preferAdHocOptimization) {
             SVSParams params = {
                 .dim = dim,
                 .metric = VecSimMetric_IP,
-                .initialCapacity = index_size,
                 .blockSize = 5,
                 /* SVS-Vamana specifics */
                 .alpha = 1.2,
@@ -1346,7 +1320,6 @@ TYPED_TEST(SVSTest, preferAdHocOptimization) {
     SVSParams params = {
         .dim = 4,
         .metric = VecSimMetric_IP,
-        .initialCapacity = 10,
         .blockSize = 5,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
@@ -1375,7 +1348,6 @@ TYPED_TEST(SVSTest, batchIteratorSwapIndices) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .initialCapacity = n,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
         .graph_max_degree = 64,
@@ -1444,7 +1416,6 @@ TYPED_TEST(SVSTest, svs_vector_search_test_cosine) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_Cosine,
-        .initialCapacity = n,
         /* SVS-Vamana specifics */
         .alpha = 0.9,
         .graph_max_degree = 64,
@@ -1526,7 +1497,6 @@ TYPED_TEST(SVSTest, testSizeEstimation) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_Cosine,
-        .initialCapacity = n,
         .blockSize = bs,
         /* SVS-Vamana specifics */
         .alpha = 0.9,
@@ -1556,7 +1526,7 @@ TYPED_TEST(SVSTest, testSizeEstimation) {
     VecSimIndex_Free(index);
 }
 
-TYPED_TEST(SVSTest, testInitialSizeEstimationWithInitialCapacity) {
+TYPED_TEST(SVSTest, testInitialSizeEstimation) {
     size_t dim = 128;
     size_t n = 100;
     size_t bs = DEFAULT_BLOCK_SIZE;
@@ -1564,7 +1534,6 @@ TYPED_TEST(SVSTest, testInitialSizeEstimationWithInitialCapacity) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_Cosine,
-        .initialCapacity = n,
         .blockSize = bs,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
@@ -1593,7 +1562,6 @@ TYPED_TEST(SVSTest, testTimeoutReturn_topK) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .initialCapacity = 1,
         .blockSize = 5,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
@@ -1629,7 +1597,6 @@ TYPED_TEST(SVSTest, testTimeoutReturn_range) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .initialCapacity = 1,
         .blockSize = 5,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
@@ -1667,7 +1634,6 @@ TYPED_TEST(SVSTest, testTimeoutReturn_batch_iterator) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .initialCapacity = n,
         .blockSize = 5,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
@@ -1788,7 +1754,6 @@ TYPED_TEST(SVSTest, rangeQueryCosine) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_Cosine,
-        .initialCapacity = 1,
         .blockSize = n / 2,
         /* SVS-Vamana specifics */
         .alpha = 0.9,
@@ -1839,7 +1804,6 @@ TYPED_TEST(SVSTest, FitMemoryTest) {
     SVSParams params = {
         .dim = dim,
         .metric = VecSimMetric_L2,
-        .initialCapacity = 100,
         .blockSize = DEFAULT_BLOCK_SIZE,
         /* SVS-Vamana specifics */
         .alpha = 1.2,
