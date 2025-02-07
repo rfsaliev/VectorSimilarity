@@ -433,6 +433,7 @@ public:
     void runGC() override {
         if (impl_) {
             impl_->consolidate();
+            impl_->compact();
         }
     }
 
