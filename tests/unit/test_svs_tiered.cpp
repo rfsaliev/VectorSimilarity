@@ -240,8 +240,6 @@ TYPED_TEST(SVSTieredIndexTest, insertJobAsync) {
             << "Vector label: " << i;
     }
 
-    // Run the GC to move all vectors to the SVS index.
-    tiered_index->runGC();
     // Verify that all vectors were moved to SVS as expected
     sz_f = tiered_index->GetFlatIndex()->indexSize();
     sz_b = tiered_index->GetBackendIndex()->indexSize();
@@ -733,12 +731,10 @@ TYPED_TEST(SVSTieredIndexTest, testSizeEstimation) {
     size_t n = DEFAULT_BLOCK_SIZE;
     size_t graph_degree = 31; // power of 2 - 1
     size_t bs = DEFAULT_BLOCK_SIZE;
-    bool isMulti = false;
 
     SVSParams svs_params = {.type = TypeParam::get_index_type(),
                               .dim = dim,
                               .metric = VecSimMetric_L2,
-                              .initialCapacity = n,
                               .graph_max_degree = graph_degree,};
     VecSimParams vecsim_svs_params = CreateParams(svs_params);
 
@@ -1199,7 +1195,6 @@ TYPED_TEST(SVSTieredIndexTest, BatchIterator) {
         .type = TypeParam::get_index_type(),
         .dim = d,
         .metric = VecSimMetric_L2,
-        .initialCapacity = n,
         .efConstruction = ef,
         .efRuntime = ef,
     };
@@ -1267,7 +1262,6 @@ TYPED_TEST(SVSTieredIndexTest, BatchIteratorReset) {
         .type = TypeParam::get_index_type(),
         .dim = d,
         .metric = VecSimMetric_L2,
-        .initialCapacity = n,
         .efConstruction = ef,
         .efRuntime = ef,
     };
@@ -1358,7 +1352,6 @@ TYPED_TEST(SVSTieredIndexTest, BatchIteratorSize1) {
         .type = TypeParam::get_index_type(),
         .dim = d,
         .metric = VecSimMetric_L2,
-        .initialCapacity = n,
         .efConstruction = ef,
         .efRuntime = ef,
     };
@@ -1422,7 +1415,6 @@ TYPED_TEST(SVSTieredIndexTest, BatchIteratorAdvanced) {
         .type = TypeParam::get_index_type(),
         .dim = d,
         .metric = VecSimMetric_L2,
-        .initialCapacity = n,
         .efConstruction = ef,
     };
     VecSimParams params = CreateParams(svs_params);
@@ -1534,7 +1526,6 @@ TYPED_TEST(SVSTieredIndexTest, BatchIteratorWithOverlaps) {
         .type = TypeParam::get_index_type(),
         .dim = d,
         .metric = VecSimMetric_L2,
-        .initialCapacity = n,
         .efConstruction = ef,
         .efRuntime = ef,
     };

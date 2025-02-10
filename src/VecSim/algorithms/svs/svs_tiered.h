@@ -344,19 +344,17 @@ private:
             }
         } // release frontend index
 
-        { // lock backend index for writing
-            std::unique_lock<std::shared_mutex> svs_lock(this->mainIndexGuard);
+        { // lock both indicies for writing - these changes to be synchronized
+            std::scoped_lock lock(this->flatIndexGuard, this->mainIndexGuard);
             auto svs_index = GetSVSIndex();
-            svs_index->deleteVectors(labels_to_delete.data(), labels_to_delete.size());
+            // TODO(rfsaliev) remove below assuming that vectors had to be deleted directly
+            auto deleted_num = svs_index->deleteVectors(labels_to_delete.data(), labels_to_delete.size());
+            assert(deleted_num == 0);
             assert(labels_to_add.size() == vectors_to_add.size() / this->frontendIndex->getDim());
             svs_index->addVectors(vectors_to_add.data(), labels_to_add.data(),
                                   labels_to_add.size());
-        } // release backend index
 
-        { // clean-up frontend index
-            // lock to prevent from modifications
-            std::unique_lock<std::shared_mutex> frontend_lock{this->flatIndexGuard};
-
+            // clean-up frontend index
             { // avoid deleting modified vectors
                 std::shared_lock<std::shared_mutex> journal_lock{this->journal_mutex};
                 for (auto &p : this->journal) {
@@ -396,8 +394,12 @@ public:
         }
         bool index_update_needed = false;
         {
-            std::scoped_lock lock(this->flatIndexGuard, this->journal_mutex);
+            std::scoped_lock lock(this->flatIndexGuard, this->mainIndexGuard, this->journal_mutex);
             ret = this->frontendIndex->addVector(blob, label);
+            ret -= svs_index->deleteVectors(&label, 1);
+            // The case when exists in both indicies (ret = 0-1) should not happen
+            // elsewhere search queries may return wrong result.
+            assert(ret >= 0 && "addVector: vector duplication in both indices");
             journal.emplace_back(label, true);
             index_update_needed = this->journal.size() >= this->updateJobThreshold;
         }
@@ -429,19 +431,17 @@ public:
 
         bool index_update_needed = false;
         if (label_exists) {
-            std::scoped_lock lock(this->flatIndexGuard, this->journal_mutex);
+            std::scoped_lock lock(this->flatIndexGuard, this->mainIndexGuard, this->journal_mutex);
             if (this->frontendIndex->isLabelExists(label)) {
-                auto deleted = this->frontendIndex->deleteVector(label);
-                if (deleted) {
-                    journal.emplace_back(label, false);
-                } else {
-                    assert(false && "unexpected deleteVector result");
-                }
-                ret += deleted;
-                index_update_needed = this->journal.size() >= this->updateJobThreshold;
+                ret = this->frontendIndex->deleteVector(label);
+                assert(ret == 1 && "unexpected deleteVector result");
             }
+            ret += svs_index->deleteVectors(&label, 1);
+            assert(ret < 2 && "deleteVector: vector duplication in both indices");
+            journal.emplace_back(label, false);
+            index_update_needed = this->journal.size() >= this->updateJobThreshold;
         } else {
-            std::unique_lock<std::shared_mutex> svs_lock(this->mainIndexGuard);
+            std::scoped_lock lock(this->mainIndexGuard);
             ret += svs_index->deleteVectors(&label, 1);
         }
 

@@ -156,9 +156,9 @@ VecSimTieredIndex<DataType, DistType>::topKQuery(const void *queryBlob, size_t k
 
         // Merge the results and return, avoiding duplicates.
         if (this->backendIndex->isMultiValue()) {
-            return merge_result_lists<false>(main_results, flat_results, k);
-        } else {
             return merge_result_lists<true>(main_results, flat_results, k);
+        } else {
+            return merge_result_lists<false>(main_results, flat_results, k);
         }
     }
 }
