@@ -642,7 +642,6 @@ PYBIND11_MODULE(VecSim, m) {
         .def_readwrite("type", &SVSParams::type)
         .def_readwrite("dim", &SVSParams::dim)
         .def_readwrite("metric", &SVSParams::metric)
-        .def_readwrite("initialCapacity", &SVSParams::initialCapacity)
         .def_readwrite("blockSize", &SVSParams::blockSize)
         .def_readwrite("quantBits", &SVSParams::quantBits)
         .def_readwrite("alpha", &SVSParams::alpha)
@@ -652,7 +651,8 @@ PYBIND11_MODULE(VecSim, m) {
         .def_readwrite("prune_to", &SVSParams::prune_to)
         .def_readwrite("use_search_history", &SVSParams::use_search_history)
         .def_readwrite("num_threads", &SVSParams::num_threads)
-        .def_readwrite("search_window_size", &SVSParams::search_window_size);
+        .def_readwrite("search_window_size", &SVSParams::search_window_size)
+        .def_readwrite("epsilon", &SVSParams::epsilon);
 
     py::class_<TieredHNSWParams>(m, "TieredHNSWParams")
         .def(py::init())

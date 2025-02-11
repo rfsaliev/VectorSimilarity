@@ -2,6 +2,7 @@
 
 #include "VecSim/index_factories/svs_factory.h"
 #include "VecSim/algorithms/svs/svs.h"
+#include "VecSim/index_factories/components/components_factory.h"
 
 namespace SVSFactory {
 
@@ -15,25 +16,28 @@ bool FactoryLog(void *ctx, const char *lvl, const char *msg) {
 }
 
 template <typename MetricType, typename DataType, size_t QuantBits, size_t ResidualBits = 0>
-VecSimIndex *NewIndexImpl(const VecSimParams *params) {
+VecSimIndex *NewIndexImpl(const VecSimParams *params, bool is_normalized) {
     auto allocator = VecSimAllocator::newVecsimAllocator();
+    auto &svs_params = params->algoParams.svsParams;
+    auto components = CreateIndexComponents<details::vecsim_dt<DataType>, float>(
+        allocator, svs_params.metric, svs_params.dim, is_normalized);
     return new (allocator)
-        SVSIndex<MetricType, DataType, QuantBits, ResidualBits>(params, allocator);
+        SVSIndex<MetricType, DataType, QuantBits, ResidualBits>(params, allocator, components);
 }
 
 template <typename MetricType, typename DataType>
-VecSimIndex *NewIndexImpl(const VecSimParams *params) {
+VecSimIndex *NewIndexImpl(const VecSimParams *params, bool is_normalized) {
     switch (params->algoParams.svsParams.quantBits) {
     case VecSimQuant_0:
-        return NewIndexImpl<MetricType, DataType, 0>(params);
+        return NewIndexImpl<MetricType, DataType, 0>(params, is_normalized);
     case VecSimQuant_8:
-        return NewIndexImpl<MetricType, DataType, 8>(params);
+        return NewIndexImpl<MetricType, DataType, 8>(params, is_normalized);
     case VecSimQuant_4:
-        return NewIndexImpl<MetricType, DataType, 4>(params);
+        return NewIndexImpl<MetricType, DataType, 4>(params, is_normalized);
     case VecSimQuant_4x4:
-        return NewIndexImpl<MetricType, DataType, 4, 4>(params);
+        return NewIndexImpl<MetricType, DataType, 4, 4>(params, is_normalized);
     case VecSimQuant_4x8:
-        return NewIndexImpl<MetricType, DataType, 4, 8>(params);
+        return NewIndexImpl<MetricType, DataType, 4, 8>(params, is_normalized);
     default:
         // If we got here something is wrong.
         FactoryLog(params->logCtx, VecSimCommonStrings::LOG_WARNING_STRING,
@@ -43,13 +47,13 @@ VecSimIndex *NewIndexImpl(const VecSimParams *params) {
 }
 
 template <typename MetricType>
-VecSimIndex *NewIndexDType(const VecSimParams *params) {
+VecSimIndex *NewIndexDType(const VecSimParams *params, bool is_normalized) {
     assert(params && params->algo == VecSimAlgo_SVS);
     switch (params->algoParams.svsParams.type) {
     case VecSimType_FLOAT32:
-        return NewIndexImpl<MetricType, float>(params);
+        return NewIndexImpl<MetricType, float>(params, is_normalized);
     case VecSimType_FLOAT16:
-        return NewIndexImpl<MetricType, svs::Float16>(params);
+        return NewIndexImpl<MetricType, svs::Float16>(params, is_normalized);
     default:
         // If we got here something is wrong.
         FactoryLog(params->logCtx, VecSimCommonStrings::LOG_WARNING_STRING,
@@ -58,17 +62,17 @@ VecSimIndex *NewIndexDType(const VecSimParams *params) {
     }
 }
 
-VecSimIndex *NewIndexImpl(const VecSimParams *params) {
+VecSimIndex *NewIndexImpl(const VecSimParams *params, bool is_normalized) {
     switch (params->algoParams.svsParams.metric) {
     case VecSimMetric_L2:
-        return NewIndexDType<svs::distance::DistanceL2>(params);
+        return NewIndexDType<svs::distance::DistanceL2>(params, is_normalized);
     case VecSimMetric_IP:
-        return NewIndexDType<svs::distance::DistanceIP>(params);
+        return NewIndexDType<svs::distance::DistanceIP>(params, is_normalized);
     case VecSimMetric_Cosine:
         // FIXME(rfsaliev) To be fixed in SVS:
         // is not defined in svs/include/svs/quantization/lvq/vectors.h :
         // template <> struct BiasedDistance<distance::DistanceCosineSimilarity>
-        return NewIndexDType<svs::distance::DistanceIP>(params);
+        return NewIndexDType<svs::distance::DistanceIP>(params, is_normalized);
     default:
         // If we got here something is wrong.
         FactoryLog(params->logCtx, VecSimCommonStrings::LOG_WARNING_STRING,
@@ -115,11 +119,29 @@ size_t SVSIndexVectorSize(VecSimType data_type, VecSimQuantBits quant_bits, size
         return 0;
     }
 }
+
+template <typename DataType>
+size_t EstimateComponentsMemorySVS(VecSimMetric metric, bool is_normalized) {
+    return EstimateComponentsMemory<details::vecsim_dt<DataType>, float>(metric, is_normalized);
+}
+
+size_t EstimateComponentsMemorySVS(VecSimType type, VecSimMetric metric, bool is_normalized) {
+    switch (type) {
+    case VecSimType_FLOAT32:
+        return EstimateComponentsMemorySVS<float>(metric, is_normalized);
+    case VecSimType_FLOAT16:
+        return EstimateComponentsMemorySVS<svs::Float16>(metric, is_normalized);
+    default:
+        // If we got here something is wrong.
+        assert(false && "Unsupported data type");
+        return 0;
+    }
+}
 } // namespace
 
-VecSimIndex *NewIndex(const VecSimParams *params) {
+VecSimIndex *NewIndex(const VecSimParams *params, bool is_normalized) {
     FactoryLog(params->logCtx, VecSimCommonStrings::LOG_NOTICE_STRING, "Creating index: SVS");
-    return NewIndexImpl(params);
+    return NewIndexImpl(params, is_normalized);
 }
 
 size_t EstimateElementSize(const SVSParams *params) {
@@ -134,18 +156,16 @@ size_t EstimateElementSize(const SVSParams *params) {
     return vector_size + graph_node_size;
 }
 
-size_t EstimateInitialSize(const SVSParams *params) {
+size_t EstimateInitialSize(const SVSParams *params, bool is_normalized) {
     size_t allocations_overhead = VecSimAllocator::getAllocationOverheadSize();
     size_t est = sizeof(VecSimAllocator) + allocations_overhead;
 
     // Assume all floats have same cases
     // Assume quantBits>0 cases have same sizes
-    size_t index_size = (params->quantBits == 0)
-                            ? sizeof(SVSIndex<svs::distance::DistanceL2, float, 0>)
-                            : sizeof(SVSIndex<svs::distance::DistanceL2, float, 8>);
-
-    est += index_size;
-
+    est += (params->quantBits == 0) ? sizeof(SVSIndex<svs::distance::DistanceL2, float, 0>)
+                                    : sizeof(SVSIndex<svs::distance::DistanceL2, float, 8>);
+    est += EstimateComponentsMemorySVS(params->type, params->metric, is_normalized);
+    est += sizeof(DataBlocksContainer) + allocations_overhead;
     return est;
 }
 

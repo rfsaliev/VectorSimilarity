@@ -43,6 +43,7 @@ protected:
     using data_type = DataType;
     using distance_f = MetricType;
     using Base = VecSimIndexAbstract<details::vecsim_dt<DataType>, float>;
+    using index_component_t = IndexComponents<details::vecsim_dt<DataType>, float>;
 
     using storage_traits_t = SVSStorageTraits<DataType, QuantBits, ResidualBits>;
     using index_storage_type = typename storage_traits_t::index_storage_type;
@@ -96,9 +97,12 @@ protected:
                                                   std::shared_ptr<VecSimAllocator> allocator) {
         assert(params && params->algo == VecSimAlgo_SVS);
         auto &svsParams = params->algoParams.svsParams;
+        size_t dataSize =
+            VecSimParams_GetDataSize(svsParams.type, svsParams.dim, svsParams.metric);
         return {.allocator = std::move(allocator),
                 .dim = svsParams.dim,
                 .vecType = svsParams.type,
+                .dataSize = dataSize,
                 .metric = svsParams.metric,
                 .blockSize = svsParams.blockSize,
                 .multi = false,
@@ -145,7 +149,7 @@ protected:
         impl_->reset_performance_parameters();
     }
 
-    int addVectorsImpl(const DataType *vectors_data, const labelType *labels, size_t n) {
+    int addVectorsImpl(const void *vectors_data, const labelType *labels, size_t n) {
         if (n == 0) {
             return 0;
         }
@@ -153,11 +157,9 @@ protected:
         const auto deleted_num = deleteVectorsImpl(labels, n);
 
         std::span<const labelType> ids(labels, n);
-        // FIXME(rfsaliev) const_cast below workarounds LVQ VectorBias definition issue
-        // explained in svs_extensions.h
-        auto remove_const_vectors_data = const_cast<DataType *>(vectors_data);
-        auto points =
-            svs::data::SimpleDataView<DataType>{remove_const_vectors_data, n, params_.dim};
+        auto processed_blob = this->preprocessForStorage(vectors_data);
+        auto typed_vectors_data = reinterpret_cast<DataType *>(processed_blob.get());
+        auto points = svs::data::SimpleDataView<DataType>{typed_vectors_data, n, params_.dim};
 
         // construct SVS index for first rows
         if (!impl_) {
@@ -215,8 +217,8 @@ protected:
     }
 
 public:
-    SVSIndex(const VecSimParams *params, std::shared_ptr<VecSimAllocator> allocator)
-        : Base{initBaseParams(params, std::move(allocator))}, changes_num{0},
+    SVSIndex(const VecSimParams *params, std::shared_ptr<VecSimAllocator> allocator, const index_component_t& components)
+        : Base{initBaseParams(params, std::move(allocator)), components}, changes_num{0},
           params_{initParams(params->algoParams.svsParams)}, impl_{nullptr} {}
 
     ~SVSIndex() = default;
@@ -262,12 +264,12 @@ public:
         return infoIterator;
     }
 
-    int addVector(const void *vector_data, labelType label, void *auxiliaryCtx = nullptr) override {
-        return addVectorsImpl(reinterpret_cast<const DataType *>(vector_data), &label, 1);
+    int addVector(const void *vector_data, labelType label) override {
+        return addVectorsImpl(vector_data, &label, 1);
     }
 
     int addVectors(const void *vectors_data, const labelType *labels, size_t n) override {
-        return addVectorsImpl(reinterpret_cast<const DataType *>(vectors_data), labels, n);
+        return addVectorsImpl(vectors_data, labels, n);
     }
 
     int deleteVector(labelType label) override { return deleteVectorsImpl(&label, 1); }
@@ -305,8 +307,11 @@ public:
         // limit result size to index size
         k = std::min(k, this->indexSize());
 
+        auto processed_query_ptr = this->preprocessQuery(queryBlob);
+        const void *processed_query = processed_query_ptr.get();
+
         auto queries = svs::data::ConstSimpleDataView<DataType>{
-            reinterpret_cast<const DataType *>(queryBlob), 1, params_.dim};
+            reinterpret_cast<const DataType *>(processed_query), 1, params_.dim};
         auto result = svs::QueryResult<size_t>{queries.size(), k};
         auto sp = details::joinSearchParams(impl_->get_search_parameters(), queryParams);
 
@@ -346,7 +351,11 @@ public:
                                       : sp.buffer_config_.get_search_window_size();
         // Base search parameters for the iterator schedule.
         auto schedule = svs::index::vamana::DefaultSchedule{sp, batch_size};
-        std::span<const data_type> query{reinterpret_cast<const data_type *>(queryBlob),
+
+        auto processed_query_ptr = this->preprocessQuery(queryBlob);
+        const void *processed_query = processed_query_ptr.get();
+
+        std::span<const data_type> query{reinterpret_cast<const data_type *>(processed_query),
                                          params_.dim};
         svs::index::vamana::BatchIterator<impl_type, data_type> svs_it{*impl_, query, schedule,
                                                                        cancel};
@@ -409,8 +418,10 @@ public:
 
     VecSimBatchIterator *newBatchIterator(const void *queryBlob,
                                           VecSimQueryParams *queryParams) const override {
-        auto *queryBlobCopy = this->allocator->allocate(sizeof(DataType) * params_.dim);
-        memcpy(queryBlobCopy, queryBlob, params_.dim * sizeof(DataType));
+        auto *queryBlobCopy =
+            this->allocator->allocate_aligned(this->dataSize, this->preprocessors->getAlignment());
+        memcpy(queryBlobCopy, queryBlob, this->dim * sizeof(DataType));
+        this->preprocessQueryInPlace(queryBlobCopy);
         // Ownership of queryBlobCopy moves to VecSimBatchIterator that will free it at the end.
         if (indexSize() == 0) {
             return new (this->getAllocator())

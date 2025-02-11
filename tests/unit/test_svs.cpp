@@ -8,7 +8,7 @@
 
 #include "gtest/gtest.h"
 #include "VecSim/vec_sim.h"
-#include "test_utils.h"
+#include "unit_test_utils.h"
 #include "VecSim/algorithms/svs/svs.h"
 #include "cpu_features_macros.h"
 #include <cmath>
