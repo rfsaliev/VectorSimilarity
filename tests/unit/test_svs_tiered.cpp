@@ -86,8 +86,7 @@ TYPED_TEST_SUITE(SVSTieredIndexTestBasic, DataTypeSet);
 
 TYPED_TEST(SVSTieredIndexTest, CreateIndexInstance) {
     // Create TieredSVS index instance with a mock queue.
-    SVSParams params = {
-        .type = TypeParam::get_index_type(), .dim = 4, .metric = VecSimMetric_L2};
+    SVSParams params = {.type = TypeParam::get_index_type(), .dim = 4, .metric = VecSimMetric_L2};
     VecSimParams svs_params = CreateParams(params);
     auto mock_thread_pool = tieredIndexMock();
     auto *tiered_index = this->CreateTieredSVSIndex(svs_params, mock_thread_pool);
@@ -118,8 +117,7 @@ TYPED_TEST(SVSTieredIndexTest, CreateIndexInstance) {
 TYPED_TEST(SVSTieredIndexTest, addVector) {
     // Create TieredSVS index instance with a mock queue.
     size_t dim = 4;
-    SVSParams params = {
-        .type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2};
+    SVSParams params = {.type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2};
     VecSimParams svs_params = CreateParams(params);
 
     auto mock_thread_pool = tieredIndexMock();
@@ -174,8 +172,7 @@ TYPED_TEST(SVSTieredIndexTest, addVector) {
 TYPED_TEST(SVSTieredIndexTest, insertJob) {
     // Create TieredSVS index instance with a mock queue.
     size_t dim = 4;
-    SVSParams params = {
-        .type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2};
+    SVSParams params = {.type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2};
     VecSimParams svs_params = CreateParams(params);
     auto mock_thread_pool = tieredIndexMock();
 
@@ -210,8 +207,7 @@ TYPED_TEST(SVSTieredIndexTest, insertJobAsync) {
     // Create TieredSVS index instance with a mock queue.
     size_t dim = 4;
     size_t n = 5000;
-    SVSParams params = {
-        .type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2};
+    SVSParams params = {.type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2};
     VecSimParams svs_params = CreateParams(params);
     auto mock_thread_pool = tieredIndexMock();
 
@@ -467,8 +463,7 @@ TYPED_TEST(SVSTieredIndexTest, KNNSearch) {
 TYPED_TEST(SVSTieredIndexTest, deleteVector) {
     // Create TieredSVS index instance with a mock queue.
     size_t dim = 4;
-    SVSParams params = {
-        .type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2};
+    SVSParams params = {.type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2};
     VecSimParams svs_params = CreateParams(params);
     auto mock_thread_pool = tieredIndexMock();
 
@@ -528,9 +523,7 @@ TYPED_TEST(SVSTieredIndexTest, manageIndexOwnership) {
 
     // Create TieredSVS index instance with a mock queue.
     size_t dim = 4;
-    SVSParams params = {.type = TypeParam::get_index_type(),
-                         .dim = dim,
-                         .metric = VecSimMetric_L2};
+    SVSParams params = {.type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2};
     VecSimParams svs_params = CreateParams(params);
     auto mock_thread_pool = tieredIndexMock();
 
@@ -732,10 +725,12 @@ TYPED_TEST(SVSTieredIndexTest, testSizeEstimation) {
     size_t graph_degree = 31; // power of 2 - 1
     size_t bs = DEFAULT_BLOCK_SIZE;
 
-    SVSParams svs_params = {.type = TypeParam::get_index_type(),
-                              .dim = dim,
-                              .metric = VecSimMetric_L2,
-                              .graph_max_degree = graph_degree,};
+    SVSParams svs_params = {
+        .type = TypeParam::get_index_type(),
+        .dim = dim,
+        .metric = VecSimMetric_L2,
+        .graph_max_degree = graph_degree,
+    };
     VecSimParams vecsim_svs_params = CreateParams(svs_params);
 
     auto mock_thread_pool = tieredIndexMock();
@@ -761,7 +756,6 @@ TYPED_TEST(SVSTieredIndexTest, testSizeEstimation) {
     }
     mock_thread_pool.thread_pool_join();
 
-
     // Estimate memory delta for filling up the first block and adding another block.
     size_t estimation = VecSimIndex_EstimateElementSize(&params) * bs;
 
@@ -775,7 +769,7 @@ TYPED_TEST(SVSTieredIndexTest, testSizeEstimation) {
 
     // Flat index should be empty, hence the index size includes only svs size.
     EXPECT_EQ(tiered_index->GetFlatIndex()->indexSize(), 0);
-    EXPECT_EQ(tiered_index->GetBackendIndex()->indexSize(), n+1);
+    EXPECT_EQ(tiered_index->GetBackendIndex()->indexSize(), n + 1);
 
     // We added n + 1 vectors
     EXPECT_EQ(index->indexSize(), n + 1);
@@ -786,7 +780,6 @@ TYPED_TEST(SVSTieredIndexTest, testSizeEstimation) {
     EXPECT_GE(estimation, actual * 0.99);
     EXPECT_LE(estimation, actual * 1.01);
 }
-
 
 TYPED_TEST(SVSTieredIndexTest, parallelInsertAdHoc) {
     size_t dim = 4;

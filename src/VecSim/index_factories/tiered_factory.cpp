@@ -119,7 +119,7 @@ VecSimIndex *NewIndex(const TieredIndexParams *params) {
 namespace TieredSVSFactory {
 
 static inline BFParams NewBFParams(const TieredIndexParams *params) {
-    auto& svs_params = params->primaryIndexParams->algoParams.svsParams;
+    auto &svs_params = params->primaryIndexParams->algoParams.svsParams;
     return BFParams{.type = svs_params.type,
                     .dim = svs_params.dim,
                     .metric = svs_params.metric,
@@ -132,7 +132,7 @@ inline VecSimIndex *NewIndex(const TieredIndexParams *params) {
 
     // initialize svs index
     // Normalization is done by the frontend index.
-    auto *svs_index = static_cast<VecSimIndexAbstract<DataType, float>*>(
+    auto *svs_index = static_cast<VecSimIndexAbstract<DataType, float> *>(
         SVSFactory::NewIndex(params->primaryIndexParams, true));
     assert(svs_index != nullptr);
     // initialize brute force index
@@ -157,12 +157,12 @@ inline VecSimIndex *NewIndex(const TieredIndexParams *params) {
     std::shared_ptr<VecSimAllocator> management_layer_allocator =
         VecSimAllocator::newVecsimAllocator();
 
-    return new (management_layer_allocator) TieredSVSIndex<DataType>(
-        svs_index, frontendIndex, *params, management_layer_allocator);
+    return new (management_layer_allocator)
+        TieredSVSIndex<DataType>(svs_index, frontendIndex, *params, management_layer_allocator);
 }
 
 inline size_t EstimateInitialSize(const TieredIndexParams *params) {
-    auto& svs_params = params->primaryIndexParams->algoParams.svsParams;
+    auto &svs_params = params->primaryIndexParams->algoParams.svsParams;
 
     // Add size estimation of VecSimTieredIndex sub indexes.
     size_t est = SVSFactory::EstimateInitialSize(&svs_params, true);
@@ -173,15 +173,15 @@ inline size_t EstimateInitialSize(const TieredIndexParams *params) {
 
     // Size of the TieredHNSWIndex struct.
     switch (svs_params.type) {
-        case VecSimType_FLOAT32:
-            est += sizeof(TieredSVSIndex<float>);
-            break;
-        case VecSimType_FLOAT16:
-            est += sizeof(TieredSVSIndex<float16>);
-            break;
-        default:
-            assert(false && "Unsupported data type");
-            break;
+    case VecSimType_FLOAT32:
+        est += sizeof(TieredSVSIndex<float>);
+        break;
+    case VecSimType_FLOAT16:
+        est += sizeof(TieredSVSIndex<float16>);
+        break;
+    default:
+        assert(false && "Unsupported data type");
+        break;
     }
 
     return est;
@@ -191,21 +191,20 @@ VecSimIndex *NewIndex(const TieredIndexParams *params) {
     // Tiered index that contains HNSW index as primary index
     VecSimType type = params->primaryIndexParams->algoParams.svsParams.type;
     switch (type) {
-        case VecSimType_FLOAT32:
-            return TieredSVSFactory::NewIndex<float>(params);
-        case VecSimType_FLOAT16:
-            return TieredSVSFactory::NewIndex<float16>(params);
-        default:
-            assert(false && "Unsupported data type");
-            return nullptr; // Invalid type.
+    case VecSimType_FLOAT32:
+        return TieredSVSFactory::NewIndex<float>(params);
+    case VecSimType_FLOAT16:
+        return TieredSVSFactory::NewIndex<float16>(params);
+    default:
+        assert(false && "Unsupported data type");
+        return nullptr; // Invalid type.
     }
     return nullptr; // Invalid type.
 }
 } // namespace TieredSVSFactory
 
 VecSimIndex *NewIndex(const TieredIndexParams *params) {
-    switch (params->primaryIndexParams->algo)
-    {
+    switch (params->primaryIndexParams->algo) {
     // Tiered index that contains HNSW index as primary index
     case VecSimAlgo_HNSWLIB:
         return TieredHNSWFactory::NewIndex(params);
@@ -222,8 +221,7 @@ size_t EstimateInitialSize(const TieredIndexParams *params) {
     size_t est = 0;
 
     BFParams bf_params{};
-    switch (params->primaryIndexParams->algo)
-    {
+    switch (params->primaryIndexParams->algo) {
     case VecSimAlgo_HNSWLIB:
         est += TieredHNSWFactory::EstimateInitialSize(params);
         bf_params = TieredHNSWFactory::NewBFParams(params);
@@ -242,8 +240,7 @@ size_t EstimateInitialSize(const TieredIndexParams *params) {
 
 size_t EstimateElementSize(const TieredIndexParams *params) {
     size_t est = 0;
-    switch (params->primaryIndexParams->algo)
-    {
+    switch (params->primaryIndexParams->algo) {
     case VecSimAlgo_HNSWLIB:
         est = HNSWFactory::EstimateElementSize(&params->primaryIndexParams->algoParams.hnswParams);
         break;

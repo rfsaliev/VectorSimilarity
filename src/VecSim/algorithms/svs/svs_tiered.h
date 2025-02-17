@@ -35,29 +35,29 @@ class TieredSVSIndex : public VecSimTieredIndex<DataType, float> {
     std::atomic_flag indexUpdateScheduled = ATOMIC_FLAG_INIT;
     std::mutex updateJobMutex;
 
-/// <batch_iterator>
-////////////////////////////////////////////////////////////////////////////////////////////////////
-//  TieredSVS_BatchIterator                                                                     //
-////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// <batch_iterator>
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+    //  TieredSVS_BatchIterator //
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
 
     class TieredSVS_BatchIterator : public VecSimBatchIterator {
-        // Defining spacial values for the svs_iterator field, to indicate if the iterator is uninitialized
-        // or depleted when we don't have a valid iterator.
-        static constexpr VecSimBatchIterator* depleted() {
-            constexpr VecSimBatchIterator* p = nullptr;
+        // Defining spacial values for the svs_iterator field, to indicate if the iterator is
+        // uninitialized or depleted when we don't have a valid iterator.
+        static constexpr VecSimBatchIterator *depleted() {
+            constexpr VecSimBatchIterator *p = nullptr;
             return p + 1;
         }
 
     private:
         using Index = TieredSVSIndex<DataType>;
         const Index *index;
-        VecSimQueryParams* queryParams;
+        VecSimQueryParams *queryParams;
 
         VecSimQueryResultContainer flat_results;
         VecSimQueryResultContainer svs_results;
 
-        VecSimBatchIterator* flat_iterator;
-        VecSimBatchIterator* svs_iterator;
+        VecSimBatchIterator *flat_iterator;
+        VecSimBatchIterator *svs_iterator;
         std::shared_lock<std::shared_mutex> svs_lock;
 
         // On single value indices, this set holds the IDs of the results that were returned from
@@ -75,15 +75,16 @@ class TieredSVSIndex : public VecSimTieredIndex<DataType, float> {
     private:
         VecSimQueryReply *compute_current_batch(size_t n_res) {
             // Merge results
-            // This call will update `svs_res` and `bf_res` to point to the end of the merged results.
-            // results.
+            // This call will update `svs_res` and `bf_res` to point to the end of the merged
+            // results. results.
             auto batch_res = new VecSimQueryReply(allocator);
-            auto [from_svs, from_flat] = merge_results<false>(batch_res->results, svs_results, flat_results, n_res);
+            auto [from_svs, from_flat] =
                 merge_results<false>(batch_res->results, svs_results, flat_results, n_res);
+            merge_results<false>(batch_res->results, svs_results, flat_results, n_res);
 
             // We're on a single-value index, update the set of results returned from the FLAT index
-            // before popping them, to prevent them to be returned from the SVS index in later batches.
-            // batches.
+            // before popping them, to prevent them to be returned from the SVS index in later
+            // batches. batches.
             for (size_t i = 0; i < from_flat; ++i) {
                 returned_results_set.insert(flat_results[i].id);
             }
@@ -107,7 +108,8 @@ class TieredSVSIndex : public VecSimTieredIndex<DataType, float> {
         void acquire_svs_iterator() {
             if (svs_iterator == nullptr) {
                 this->index->mainIndexGuard.lock_shared();
-                svs_iterator = index->backendIndex->newBatchIterator(this->flat_iterator->getQueryBlob(), queryParams);
+                svs_iterator = index->backendIndex->newBatchIterator(
+                    this->flat_iterator->getQueryBlob(), queryParams);
             }
         }
 
@@ -132,8 +134,7 @@ class TieredSVSIndex : public VecSimTieredIndex<DataType, float> {
                                 std::shared_ptr<VecSimAllocator> allocator)
             : VecSimBatchIterator(query_vector, queryParams ? queryParams->timeoutCtx : nullptr,
                                   std::move(allocator)),
-              index(index),
-              queryParams(params ? new VecSimQueryParams{*params} : nullptr),
+              index(index), queryParams(params ? new VecSimQueryParams{*params} : nullptr),
               flat_results(this->allocator), svs_results(this->allocator),
               flat_iterator(index->frontendIndex->newBatchIterator(query_vector, queryParams)),
               svs_iterator(nullptr), svs_lock(index->mainIndexGuard, std::defer_lock),
@@ -151,8 +152,8 @@ class TieredSVSIndex : public VecSimTieredIndex<DataType, float> {
             auto svs_code = VecSim_QueryReply_OK;
 
             if (svs_iterator == nullptr) { // first call
-                // First call to getNextResults. The call to the BF iterator will include calculating all
-                // the distances and access the BF index. We take the lock on this call.
+                // First call to getNextResults. The call to the BF iterator will include
+                // calculating all the distances and access the BF index. We take the lock on this
                 // call.
                 auto cur_flat_results = [this, n_res]() {
                     std::shared_lock<std::shared_mutex> flat_lock{index->flatIndexGuard};
@@ -164,8 +165,8 @@ class TieredSVSIndex : public VecSimTieredIndex<DataType, float> {
                 }
                 flat_results.swap(cur_flat_results->results);
                 VecSimQueryReply_Free(cur_flat_results);
-                // We also take the lock on the main index on the first call to getNextResults, and we hold
-                // it until the iterator is depleted or freed.
+                // We also take the lock on the main index on the first call to getNextResults, and
+                // we hold it until the iterator is depleted or freed.
                 acquire_svs_iterator();
                 auto cur_svs_results = svs_iterator->getNextResults(n_res, BY_SCORE_THEN_ID);
                 svs_code = cur_svs_results->code;
@@ -175,9 +176,9 @@ class TieredSVSIndex : public VecSimTieredIndex<DataType, float> {
             } else {
                 if (flat_results.size() < n_res && !flat_iterator->isDepleted()) {
                     auto tail = flat_iterator->getNextResults(n_res - flat_results.size(),
-                                                                    BY_SCORE_THEN_ID);
+                                                              BY_SCORE_THEN_ID);
                     flat_results.insert(flat_results.end(), tail->results.begin(),
-                                            tail->results.end());
+                                        tail->results.end());
                     VecSimQueryReply_Free(tail);
                 }
 
@@ -348,7 +349,8 @@ private:
             std::scoped_lock lock(this->flatIndexGuard, this->mainIndexGuard);
             auto svs_index = GetSVSIndex();
             // TODO(rfsaliev) remove below assuming that vectors had to be deleted directly
-            auto deleted_num = svs_index->deleteVectors(labels_to_delete.data(), labels_to_delete.size());
+            auto deleted_num =
+                svs_index->deleteVectors(labels_to_delete.data(), labels_to_delete.size());
             assert(deleted_num == 0);
             assert(labels_to_add.size() == vectors_to_add.size() / this->frontendIndex->getDim());
             svs_index->addVectors(vectors_to_add.data(), labels_to_add.data(),
@@ -526,8 +528,8 @@ public:
         TIERED_LOG(VecSimCommonStrings::LOG_VERBOSE_STRING,
                    "running asynchronous GC for tiered SVS index");
         if (!indexUpdateScheduled.test_and_set()) {
-            auto job =
-                new (this->allocator) SVSIndexUpdateJob{this->allocator, updateSVSIndexWrapper, this};
+            auto job = new (this->allocator)
+                SVSIndexUpdateJob{this->allocator, updateSVSIndexWrapper, this};
             updateSVSIndexWrapper(job);
         }
         std::unique_lock<std::shared_mutex> backend_lock{this->mainIndexGuard};

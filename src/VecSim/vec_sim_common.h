@@ -183,7 +183,7 @@ typedef struct {
     VecSimParams *primaryIndexParams; // Parameters to initialize the index.
     union {
         TieredHNSWParams tieredHnswParams;
-        TieredSVSParams  tieredSVSParams;
+        TieredSVSParams tieredSVSParams;
     } specificParams;
 } TieredIndexParams;
 
