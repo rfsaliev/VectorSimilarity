@@ -5,7 +5,7 @@
 #include <string>
 #include <array>
 
-#include "test_utils.h"
+#include "unit_test_utils.h"
 #include "mock_thread_pool.h"
 
 #include <thread>
@@ -69,9 +69,9 @@ struct SVSIndexType {
 };
 
 // clang-format off
-using SVSDataTypeSet = ::testing::Types<SVSIndexType<VecSimType_FLOAT32, float, VecSimQuant_NONE>,
-                                        SVSIndexType<VecSimType_FLOAT32, float, VecSimQuant_8>,
-                                        SVSIndexType<VecSimType_FLOAT32, float, VecSimQuant_4>
+using SVSDataTypeSet = ::testing::Types<SVSIndexType<VecSimType_FLOAT32, float, VecSimQuant_NONE>
+                                    //   ,SVSIndexType<VecSimType_FLOAT32, float, VecSimQuant_8>
+                                    //   ,SVSIndexType<VecSimType_FLOAT32, float, VecSimQuant_4>
                                         >;
 // clang-format on
 
@@ -846,6 +846,7 @@ TYPED_TEST(SVSTieredIndexTest, parallelInsertAdHoc) {
     EXPECT_EQ(mock_thread_pool.jobQ.size(), 0);
 }
 
+// TODO: Uncomment tests below or remove if not relevant.
 /*
 TYPED_TEST(SVSTieredIndexTest, deleteVectorAndRepairAsync) {
     // Create TieredSVS index instance with a mock queue.

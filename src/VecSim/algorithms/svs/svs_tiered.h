@@ -107,7 +107,7 @@ class TieredSVSIndex : public VecSimTieredIndex<DataType, float> {
         void acquire_svs_iterator() {
             if (svs_iterator == nullptr) {
                 this->index->mainIndexGuard.lock_shared();
-                svs_iterator = index->backendIndex->newBatchIterator(getQueryBlob(), queryParams);
+                svs_iterator = index->backendIndex->newBatchIterator(this->flat_iterator->getQueryBlob(), queryParams);
             }
         }
 
@@ -385,12 +385,15 @@ public:
         TIERED_LOG(VecSimCommonStrings::LOG_NOTICE_STRING, "TieredSVSIndex created");
     }
 
-    int addVector(const void *blob, labelType label, void *auxiliaryCtx = nullptr) override {
+    int addVector(const void *blob, labelType label) override {
         int ret = 0;
         auto svs_index = GetSVSIndex();
         if (this->getWriteMode() == VecSim_WriteInPlace) {
+            // Use the frontend parameters to manually prepare the blob for its transfer to the SVS
+            // index.
+            auto storage_blob = this->frontendIndex->preprocessForStorage(blob);
             std::unique_lock<std::shared_mutex> svs_lock(this->mainIndexGuard);
-            return svs_index->addVectors(blob, &label, 1);
+            return svs_index->addVectors(storage_blob.get(), &label, 1);
         }
         bool index_update_needed = false;
         {
